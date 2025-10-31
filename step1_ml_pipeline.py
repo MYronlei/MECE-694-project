@@ -68,7 +68,7 @@ def load_cmapss_data(dataname = 'FD001') -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     return train, test
 
-def data_processing(train, test) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def data_processing(train, test) -> Tuple[pd.DataFrame, pd.DataFrame, RobustScaler]:
     # scale only feature columns
     exclude = ['engine_id', 'cycle', 'RUL']
     feature_cols = [c for c in train.columns if c not in exclude]
@@ -81,12 +81,12 @@ def data_processing(train, test) -> Tuple[pd.DataFrame, pd.DataFrame]:
     train_scaled[feature_cols] = scaler.transform(train[feature_cols])
     test_scaled[feature_cols] = scaler.transform(test[feature_cols])
 
-    return train_scaled, test_scaled
+    return train_scaled, test_scaled, scaler
 
 def main():
     # Load data
     train, test = load_cmapss_data('FD001')
-    train_std, test_std = data_processing(train, test)
+    train_std, test_std, scaler = data_processing(train, test)
     print("Training data shape:", train_std.shape)
     print("Testing data shape:", test_std.shape)
     print(test_std)
@@ -122,6 +122,19 @@ def main():
     print(f"Baseline Model MAE: {mae:.3f}")
     print(f"Baseline Model RMSE: {rmse:.3f}")
     print(f"Baseline Model R2 score: {r2:.4f}")
+
+    # Ensure output directory and save processed test set and scaler for step3
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
+    os.makedirs(out_dir, exist_ok=True)
+    test_csv = os.path.join(out_dir, 'test_processed.csv')
+    scaler_pkl = os.path.join(out_dir, 'scaler.pkl')
+    test_std.to_csv(test_csv, index=False)
+    import pickle
+    with open(scaler_pkl, 'wb') as f:
+        pickle.dump(scaler, f)
+    print(f"Saved processed test set to: {test_csv}")
+    print(f"Saved scaler to: {scaler_pkl}")
+    print("Step3 can load these files: pandas.read_csv(test_processed.csv) and pickle.load(scaler.pkl)")
 
 if __name__ == "__main__":
     main()
