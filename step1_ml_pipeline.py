@@ -89,7 +89,8 @@ def main():
     train_std, test_std, scaler = data_processing(train, test)
     print("Training data shape:", train_std.shape)
     print("Testing data shape:", test_std.shape)
-    print(test_std)
+
+    # ...existing code...
     # Prepare features and target (RUL)
     exclude = ['engine_id', 'cycle', 'RUL']
     feature_cols = [c for c in train_std.columns if c not in exclude]
@@ -124,17 +125,19 @@ def main():
     print(f"Baseline Model R2 score: {r2:.4f}")
 
     # Ensure output directory and save processed test set and scaler for step3
+    # Save happens after training so it's easy to replace/remove later
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
     os.makedirs(out_dir, exist_ok=True)
     test_csv = os.path.join(out_dir, 'test_processed.csv')
     scaler_pkl = os.path.join(out_dir, 'scaler.pkl')
+
+    # Save scaled processed test set (contains engine_id, cycle, RUL and scaled features)
     test_std.to_csv(test_csv, index=False)
     import pickle
     with open(scaler_pkl, 'wb') as f:
         pickle.dump(scaler, f)
     print(f"Saved processed test set to: {test_csv}")
     print(f"Saved scaler to: {scaler_pkl}")
-    print("Step3 can load these files: pandas.read_csv(test_processed.csv) and pickle.load(scaler.pkl)")
 
 if __name__ == "__main__":
     main()

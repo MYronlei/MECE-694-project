@@ -6,49 +6,62 @@ import functools
 import pandas as pd
 from deap import base, creator, tools, algorithms
 import os
-import time # Import time for benchmarking
+import time 
+import matplotlib.pyplot as plt
+    
 
-# --- 1. Constants and Cost Definitions ---
+#  1. Constants and Cost Definitions
 
 # N_ENGINES will be loaded dynamically from data
-PLANNING_HORIZON = 90  # planning horizon (days)
-MAX_TEAMS = 5          # number of maintenance teams (resource constraint)
+PLANNING_HORIZON = 120  # planning horizon (shifts) - increased for better strategy differentiation
+MAX_TEAMS = 5           # number of maintenance teams (resource constraint)
 
-# Cost and time parameters (using user's latest values)
-MAINTENANCE_COST = 20000   # scheduled maintenance cost
-MAINTENANCE_TIME = 2       # scheduled maintenance time (days)
+# Cost and time parameters
+MAINTENANCE_COST = 30000   # scheduled maintenance cost
+MAINTENANCE_TIME = 4       # scheduled maintenance time (shifts)
 FAILURE_COST = 80000       # failure repair cost (higher)
-FAILURE_TIME = 5           # failure repair time (longer)
-DOWNTIME_COST_PER_DAY = 5000 # cost of downtime per day
+FAILURE_TIME = 10           # failure repair time (longer)
+LOW_DOWNTIME_COST_PER_SHIFT = 3000 # cost of downtime per shift for low importance engines
+MEDIUM_DOWNTIME_COST_PER_SHIFT = 4000 # cost of downtime per shift for medium importance engines
+HIGH_DOWNTIME_COST_PER_SHIFT = 5000 # cost of downtime per shift for high importance engines
 
 # RUL range for simulation (after repair)
-MIN_RUL_AFTER_REPAIR = 120 # min RUL for a *full* repair
-MAX_RUL_CONFIG = 200     # default max RUL
+MIN_RUL_AFTER_REPAIR = 250 # min RUL for a *full* repair (in cycles)
+MAX_RUL_CONFIG = 350     # default max RUL (in cycles)
+
+# RUL failure threshold: when RUL drops below this, engine MUST be repaired (cannot run anymore)
+RUL_FAILURE_THRESHOLD = 50  # cycles (if RUL <= this value, force repair)
+
+# Simulation time step configuration
+CYCLES_PER_SHIFT = 2  # number of cycles consumed per shift (adjustable)
 
 # --- NSGA-II Genetic Algorithm Parameters ---
-POP_SIZE = 50       # population size (e.g., 100-200)
-NGEN = 50           # number of generations (e.g., 100-500)
-CXPB = 0.8          # crossover probability
-MUTPB = 0.2         # mutation probability (0.8 + 0.2 = 1.0)
+POP_SIZE = 50       # population size
+NGEN = 50           # number of generations 
+CXPB = 0.8          # crossover probability 
+MUTPB = 0.2         # mutation probability
 
-# Optimization range for fuzzy thresholds
-MIN_THRESHOLD = 5.0
-MAX_THRESHOLD = 9.5
+# Optimization range for fuzzy thresholds - expanded for more diversity
+MIN_THRESHOLD = 1.0  # allow very aggressive maintenance strategies
+MAX_THRESHOLD = 9.5 # allow very conservative strategies (near failure)
 
-# --- 2. RUL Simulation (for post-repair) ---
+#%% 2. RUL Simulation (for post-repair) 
 
 def get_repaired_rul(repair_type):
     """
     Simulate RUL after maintenance, implementing partial restoration.
     (Implements Suggestion #2)
+    Returns RUL in cycles.
     """
     if repair_type == 'repair':
-        # Failure repair: full restoration
-        return np.random.uniform(MIN_RUL_AFTER_REPAIR, MAX_RUL_CONFIG)
+        # Simulate repair: partial restoration (e.g., 70% of full)
+        partial_min = MIN_RUL_AFTER_REPAIR * 0.9
+        partial_max = MAX_RUL_CONFIG * 0.7        
+        return np.random.uniform(partial_min, partial_max)
     else: # 'maintenance'
-        # Scheduled maintenance: partial restoration (e.g., 60-80% of full)
-        partial_min = MIN_RUL_AFTER_REPAIR * 0.6  # e.g., 120 * 0.6 = 72
-        partial_max = MAX_RUL_CONFIG * 0.8        # e.g., 200 * 0.8 = 160
+        # Scheduled maintenance: partial restoration (e.g., 80% of full)
+        partial_min = MIN_RUL_AFTER_REPAIR   
+        partial_max = MAX_RUL_CONFIG * 0.8        
         return np.random.uniform(partial_min, partial_max)
 
 
@@ -62,7 +75,7 @@ def create_urgency_lookup_table(max_rul_value):
     global MAX_RUL_CONFIG
     MAX_RUL_CONFIG = max_rul_value # update global config
     
-    # 1. Define the Fuzzy System (same as before)
+    # Define the Fuzzy System
     rul_range = np.arange(0, max_rul_value + 1, 1)
     imp_range = np.arange(1, 4, 1) # Discrete values 1, 2, 3
     
@@ -92,24 +105,21 @@ def create_urgency_lookup_table(max_rul_value):
     urgency_ctrl = ctrl.ControlSystem([rule1, rule2, rule3, rule4, rule5, rule6])
     urgency_simulator = ctrl.ControlSystemSimulation(urgency_ctrl)
     
-    # 2. Create the Lookup Table (LUT)
-    # We need indices from 0-200 for RUL and 0-3 for Importance
+    # Create the Lookup Table (LUT)
+    # We need indices from 0-350 for RUL and 0-3 for Importance
     # We'll make Importance 1-based, so array size is max_rul+1 by 4
     print("Pre-computing Fuzzy Logic Lookup Table (LUT)...")
     start_time = time.time()
     
-    # Note: RUL is index, Importance is index (1, 2, 3)
+    # RUL is index, Importance is index (1, 2, 3)
     lut = np.zeros((max_rul_value + 1, 4)) 
     
     for r in range(max_rul_value + 1):
         for i in range(1, 4): # 1, 2, 3
-            try:
-                urgency_simulator.input['rul'] = r
-                urgency_simulator.input['importance'] = i
-                urgency_simulator.compute()
-                lut[r, i] = urgency_simulator.output['urgency']
-            except:
-                lut[r, i] = 5.0 # Fallback
+            urgency_simulator.input['rul'] = r
+            urgency_simulator.input['importance'] = i
+            urgency_simulator.compute()
+            lut[r, i] = urgency_simulator.output['urgency']
     
     print(f"LUT pre-computation finished in {time.time() - start_time:.2f} seconds.")
     return lut
@@ -129,109 +139,166 @@ def get_urgency_score_from_lut(lut, current_rul, engine_importance):
     # Importance is already 1, 2, or 3, which are valid indices
     return lut[idx_rul, engine_importance]
 
+def evaluate_by_importance(individual, n_engines, initial_ruls_data, urgency_lut, engine_importance_data):
+    """
+    Evaluate an individual by mapping its three thresholds to engines based on importance.
+    # individual[0] -> threshold for importance==1 (low)
+    # individual[1] -> threshold for importance==2 (medium)
+    # individual[2] -> threshold for importance==3 (high)
+    """
+    thr_map = {
+        1: np.clip(float(individual[0]), MIN_THRESHOLD, MAX_THRESHOLD),
+        2: np.clip(float(individual[1]), MIN_THRESHOLD, MAX_THRESHOLD),
+        3: np.clip(float(individual[2]), MIN_THRESHOLD, MAX_THRESHOLD)
+    }
+    per_engine_thresh = [thr_map[int(imp)] for imp in engine_importance_data] # assign thresholds based on importance to each engine
+    return evaluate_schedule(per_engine_thresh, n_engines, initial_ruls_data, urgency_lut, engine_importance_data)
 
 def evaluate_schedule(individual_thresholds, n_engines, initial_ruls_data, urgency_lut, engine_importance_data):
     """
-    DEAP evaluation function: Simulates the strategy using the
-    fast Lookup Table (urgency_lut).
+    This is the system dynamic model.
+
+    Status space:
+        - 'operational'             : engine is running normally
+        - 'awaiting_maintenance'    : maintenance has been scheduled/queued, engine can continue running
+        - 'maintenance'             : maintenance is in progress (team assigned, engine down)
+        - 'awaiting_repair'         : repair has been scheduled/queued, engine down
+        - 'repair'                  : repair is in progress (team assigned, engine down)
+
+    Logic:
+        - RUL_FAILURE_THRESHOLD: if RUL <= this value, engine must be repaired and can't run anymore
+        - Maintenance THRESHOLD: if RUL <= this value, engine must be maintained (but can still run)
+        - awaiting_maintenance: engine continues to run (RUL decreases) until:
+            1. RUL hits failure threshold -> escalate to awaiting_repair
+            2. Team becomes available -> start maintenance
+
+    Target: Find best individual maintenance thresholds for engines that running different important missions that can:
+    - Minimize total cost (maintenance + failure + downtime)
+    - Minimize total failures
     """
-    
-    # *** OPTIMIZATION: No simulator object needed here! ***
-    
+
     # Simulation state
     engine_ruls = initial_ruls_data.copy()
-    engine_status = ['operational'] * n_engines 
-    days_in_shop = np.zeros(n_engines)
-    
+    engine_status = ['operational'] * n_engines
+    shifts_in_shop = np.zeros(n_engines)
+
     # Objective variables
     total_cost = 0
-    total_downtime = 0 # Still needed to calculate downtime_cost
-    total_failures = 0 # *** NEW OBJECTIVE (Suggestion #1) ***
+    total_failures = 0
+    # We'll accumulate downtime cost directly per-engine per-shift using importance-specific rates
+    total_downtime_cost = 0
 
-    for day in range(PLANNING_HORIZON):
-        
+    for shift in range(PLANNING_HORIZON):
         current_teams_used = 0
         service_candidates = []
-        engines_down_this_day = np.zeros(n_engines, dtype=bool)
+        engines_down_this_shift = np.zeros(n_engines, dtype=bool)
 
-        # --- Loop 1: Update engines in shop, find candidates from operational engines ---
+        # Loop 1: Update engines in shop, find candidates
         for i in range(n_engines):
             status = engine_status[i]
-            
-            if 'maintenance' in status or 'repair' in status:
-                engines_down_this_day[i] = True 
-                if 'awaiting' not in status:
-                    current_teams_used += 1
-                    days_in_shop[i] += 1
-                    
-                    if status == 'maintenance' and days_in_shop[i] >= MAINTENANCE_TIME:
-                        engine_status[i] = 'operational'
-                        days_in_shop[i] = 0
-                        engine_ruls[i] = get_repaired_rul('maintenance')
-                    elif status == 'repair' and days_in_shop[i] >= FAILURE_TIME:
-                        engine_status[i] = 'operational'
-                        days_in_shop[i] = 0
-                        engine_ruls[i] = get_repaired_rul('repair')
-                
-                if status == 'awaiting_repair':
+
+            # If in maintenance or repair, update days in shop, record downtime
+            if status == 'maintenance' or status == 'repair':
+                engines_down_this_shift[i] = True
+                current_teams_used += 1
+                shifts_in_shop[i] += 1
+                # Check if maintenance is complete (measured in shifts)
+                if status == 'maintenance' and shifts_in_shop[i] >= MAINTENANCE_TIME:
+                    engine_status[i] = 'operational'
+                    shifts_in_shop[i] = 0
+                    engine_ruls[i] = get_repaired_rul('maintenance')
+                # Check if repair is complete (measured in shifts)
+                elif status == 'repair' and shifts_in_shop[i] >= FAILURE_TIME:
+                    engine_status[i] = 'operational'
+                    shifts_in_shop[i] = 0
+                    engine_ruls[i] = get_repaired_rul('repair')
+
+            # If awaiting repair, engine is down, must be repaired right away
+            elif status == 'awaiting_repair':
+                engines_down_this_shift[i] = True
+                service_candidates.append((100.0, i, 'repair'))
+
+            # If awaiting maintenance, engine can still run
+            elif status == 'awaiting_maintenance':
+                rul = engine_ruls[i]
+                importance = engine_importance_data[i]
+
+                # Check if RUL hit failure threshold while waiting
+                if rul <= RUL_FAILURE_THRESHOLD:
+                    # Escalate to repair
+                    total_failures += 1
+                    engine_status[i] = 'awaiting_repair'
+                    engines_down_this_shift[i] = True
                     service_candidates.append((100.0, i, 'repair'))
-                elif status == 'awaiting_maintenance':
-                    rul = engine_ruls[i]
-                    importance = engine_importance_data[i]
-                    # *** OPTIMIZATION: Use fast LUT lookup ***
+                else:
+                    # Still waiting for maintenance, continue running
                     urgency = get_urgency_score_from_lut(urgency_lut, rul, importance)
                     service_candidates.append((urgency, i, 'maintenance'))
 
+            # For operational engines
             elif status == 'operational':
                 rul = engine_ruls[i]
                 importance = engine_importance_data[i]
-                
-                if rul <= 0:
+
+                # Check if RUL hit failure threshold
+                if rul <= RUL_FAILURE_THRESHOLD:
                     total_failures += 1
                     service_candidates.append((100.0, i, 'repair'))
                     engine_status[i] = 'awaiting_repair'
-                    engines_down_this_day[i] = True
+                    engines_down_this_shift[i] = True
                 else:
-                    # *** OPTIMIZATION: Use fast LUT lookup ***
+                    # Check if urgency triggers maintenance
                     urgency = get_urgency_score_from_lut(urgency_lut, rul, importance)
-                    if urgency > individual_thresholds[i]:
+                    if urgency > individual_thresholds[i]:  #<--- these are the variables being optimized
                         service_candidates.append((urgency, i, 'maintenance'))
                         engine_status[i] = 'awaiting_maintenance'
-                        engines_down_this_day[i] = True
-            
-        # --- Loop 2: Assign available teams ---
+
+        # Loop 2: Assign available teams
+        # Once service candidates are identified, assign available teams (per shift)
         available_teams = MAX_TEAMS - current_teams_used
+        # Sort candidates by priority
         sorted_candidates = sorted(service_candidates, key=lambda x: x[0], reverse=True)
-        
+
+        # Assign teams to the highest priority candidates first
         for (priority, i, service_type) in sorted_candidates:
-            if available_teams > 0 and 'awaiting' in engine_status[i]:
+            if available_teams > 0 and (engine_status[i] == 'awaiting_repair' or engine_status[i] == 'awaiting_maintenance'):
                 available_teams -= 1
-                engine_status[i] = service_type 
-                days_in_shop[i] = 1
-                
+                engine_status[i] = service_type
+                shifts_in_shop[i] = 1
+
+                # Add service cost
                 if service_type == 'repair':
                     total_cost += FAILURE_COST
                 elif service_type == 'maintenance':
                     total_cost += MAINTENANCE_COST
-            
-        # --- Loop 3: Update RUL and calculate total downtime for the day ---
-        for i in range(n_engines):
-            if engine_status[i] == 'operational':
-                engine_ruls[i] -= 1
-            
-            if engines_down_this_day[i]:
-                total_downtime += 1
 
-    total_cost += total_downtime * DOWNTIME_COST_PER_DAY
-    
+        # Loop 3: Update RUL and calculate total downtime for the shift
+        for i in range(n_engines):
+            # Only operational and awaiting_maintenance engines continue running (RUL decreases by CYCLES_PER_SHIFT)
+            if engine_status[i] == 'operational' or engine_status[i] == 'awaiting_maintenance':
+                engine_ruls[i] -= CYCLES_PER_SHIFT
+
+            # Count downtime cost (only engines in maintenance/repair or awaiting_repair are down this shift)
+            if engines_down_this_shift[i]:
+                imp = int(engine_importance_data[i])
+                if imp == 1:
+                    total_downtime_cost += LOW_DOWNTIME_COST_PER_SHIFT
+                elif imp == 2:
+                    total_downtime_cost += MEDIUM_DOWNTIME_COST_PER_SHIFT
+                else:
+                    total_downtime_cost += HIGH_DOWNTIME_COST_PER_SHIFT
+
+    # Add accumulated downtime cost
+    total_cost += total_downtime_cost
+
     return total_cost, total_failures
 
 
-# --- 5. Main Execution ---
+# 5. Main Execution
 
 if __name__ == "__main__":
 
-    # 1. reading data test_processed.csv and define initial RULs and importance
+    #%% 1. reading data test_processed.csv and define initial RULs and importance
     print("reading data test_processed.csv")
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -252,21 +319,23 @@ if __name__ == "__main__":
         exit()
 
     # getting intial RULs for each engine (for simulation)
+    # Use first() to get initial (maximum) RUL, as RUL decreases over time in the data
     grouped = df.groupby(engine_col)[rul_col]
-    initial_ruls = grouped.last().values
+    initial_ruls = grouped.first().values
 
     N_ENGINES = len(initial_ruls)
     if N_ENGINES == 0:
         print("error: no engine data loaded from CSV.")
         exit()
     
-    n_sample = min(60, N_ENGINES) # Sample 60 engines or fewer
+    n_sample = min(100, N_ENGINES) # Sample xxx engines 
     print(f"Total engines found: {N_ENGINES}. Sampling {n_sample} for demo.")
     sampled_indices = random.sample(range(N_ENGINES), n_sample)
     initial_ruls = initial_ruls[sampled_indices]
     N_ENGINES = n_sample 
 
     # Dynamically create importance groups based on n_sample
+    # Assume, 1/3 engines are running low important missions, 1/3 are medium, and 1/3 are high
     n_low = n_sample // 3
     n_med = n_sample // 3
     n_high = n_sample - n_low - n_med 
@@ -275,21 +344,21 @@ if __name__ == "__main__":
     importance_medium = np.full(n_med, 2)   # medium importance
     importance_high = np.full(n_high, 3)     # high importance
     simulated_engine_importance = np.concatenate([importance_low, importance_medium, importance_high])
-    np.random.shuffle(simulated_engine_importance)
+    np.random.shuffle(simulated_engine_importance) # randomly distribute importance to all engines
     print(f"Created simulated 'Task Importance' (1, 2, 3) for {N_ENGINES} engines.")
 
-    data_max_rul = 200 
+    data_max_rul = MAX_RUL_CONFIG 
     print(f"Finished loading initial RUL data for {N_ENGINES} engines.")
-    print(f"Average *initial* RUL (at simulation start): {np.mean(initial_ruls):.2f} days")
-    print(f"Fuzzy system MAX_RUL set to: {data_max_rul} days")
-
-    # 2. Define fuzzy logic system
-    # *** OPTIMIZATION: Create the Lookup Table (LUT) ONCE ***
+    print(f"Average *initial* RUL (at simulation start): {np.mean(initial_ruls):.2f} cycles")
+    print(f"Fuzzy system MAX_RUL set to: {data_max_rul} cycles")
+    print(f"Simulation config: {CYCLES_PER_SHIFT} cycle(s) per shift")
+    #%% 2. Define fuzzy logic system
+    # Create the Lookup Table (LUT) ONCE, to speed up evaluations
     start_main = time.time()
     urgency_lut = create_urgency_lookup_table(data_max_rul)
     print("Fuzzy logic LUT created.")
 
-    # 3. Define DEAP genetic algorithm components
+    #%% 3. Define DEAP NSGA-II components
     print(f"\n--- defining NSGA-II genetic algorithm ---")
     print(f"Pop_size: {POP_SIZE}, N_gen: {NGEN}, N_engines: {N_ENGINES}")
 
@@ -300,80 +369,132 @@ if __name__ == "__main__":
 
     toolbox = base.Toolbox()
     toolbox.register("attr_thresh", random.uniform, MIN_THRESHOLD, MAX_THRESHOLD)
-    toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_thresh, N_ENGINES)
+    toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_thresh, 3)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
-    # Register evaluation function (*** key update: pass the LUT ***)
-    toolbox.register("evaluate", evaluate_schedule,
+    toolbox.register("evaluate", evaluate_by_importance,
                      n_engines=N_ENGINES,
                      initial_ruls_data=initial_ruls, 
                      urgency_lut=urgency_lut,
                      engine_importance_data=simulated_engine_importance)
 
-    toolbox.register("mate", tools.cxBlend, alpha=0.5) 
-    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=0.5, indpb=0.1)
+    toolbox.register("mate", tools.cxBlend, alpha=0.2) 
+    toolbox.register("mutate", tools.mutGaussian, mu=0.3, sigma=0.2, indpb=0.2)  # Increased sigma and indpb for more diversity
     toolbox.register("select", tools.selNSGA2) 
 
-    # 4. Run baseline strategy (Run-to-Failure)
+    #%% 4. Run baseline strategy (Run-to-Failure)
     print("\n--- evaluating [baseline: Run-to-Failure] strategy ---")
-    r2f_thresholds = [11.0] * N_ENGINES
+    # Baseline strategy: only maintain when urgency is almost max (10.0)
+    r2f_thresholds = [10.0 - 1e-5] * N_ENGINES 
     r2f_cost, r2f_failures = toolbox.evaluate(r2f_thresholds)
 
     print(f"Total cost: ${r2f_cost:,.0f}")
     print(f"Total failures: {r2f_failures:,.0f} events")
 
 
-    # 5. Run NSGA-II optimization
+    #%% 5. Run NSGA-II optimization
     print("\n--- running [optimization: NSGA-II + Fuzzy Policy] strategy ---")
     print("This may take a few minutes...")
     
     pop = toolbox.population(n=POP_SIZE)
+    
+    # Track all evaluated individuals for visualization
+    all_evaluated = []
+    
+    # Custom evaluation wrapper to track history
+    original_evaluate = toolbox.evaluate
+    def evaluate_and_track(*args, **kwargs):
+        result = original_evaluate(*args, **kwargs)
+        all_evaluated.append(result)  # Store (cost, failures)
+        return result
+    toolbox.register("evaluate", evaluate_and_track)
+    
+    # NSGA-II main loop start
     algorithms.eaMuPlusLambda(pop, toolbox, mu=POP_SIZE, lambda_=POP_SIZE, 
                               cxpb=CXPB, mutpb=MUTPB, ngen=NGEN, verbose=False)
 
     print("NSGA-II optimization completed.")
+    print(f"Total evaluations: {len(all_evaluated)}")
     print(f"\n--- Total Optimization Time: {time.time() - start_main:.2f} seconds ---")
 
-    # 6. Results
+    #%% 6. Results
     print("\n--- Optimization Results (Pareto Front) ---")
     pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)[0]
 
     print(f"Baseline (R2F):   Cost=${r2f_cost:,.0f}, Failures={r2f_failures:,.0f}")
-    print("---")
     print(f"NSGA-II found {len(pareto_front)} Pareto optimal solutions:")
     
+    # Display all Pareto solutions
     for i, sol in enumerate(pareto_front):
         cost, failures = sol.fitness.values
-        # Note: Corrected typo from Faililures to Failures
         print(f"  Solution {i+1}: Cost=${cost:,.0f}, Failures={failures:,.0f}") 
 
-    # Find the lowest cost solution
+    # Find the lowest cost solution for example display
     best_cost_sol = min(pareto_front, key=lambda sol: sol.fitness.values[0])
     cost, failures = best_cost_sol.fitness.values
     
     print("\n---")
     print(f"Example Selection (Lowest Cost Solution):")
-    print(f"  Cost: ${cost:,.0f} (Savings: ${r2f_cost - cost:,.0f})")
-    print(f"  Failures: {failures:,.0f} (Reduction: {r2f_failures - failures:,.0f} events)")
+    print(f"Cost: ${cost:,.0f} (Savings: ${r2f_cost - cost:,.0f})")
+    print(f"Failures: {failures:,.0f} (Reduction: {r2f_failures - failures:,.0f} events)")
+    print(f"Low importance (1):    {best_cost_sol[0]:.2f}")
+    print(f"Medium importance (2): {best_cost_sol[1]:.2f}")
+    print(f"High importance (3):   {best_cost_sol[2]:.2f}")
 
-    # *** NEW ANALYSIS (Suggestion #5) ***
-    print("\n--- Analysis of Best Policy (Lowest Cost Solution) ---")
-    best_policy_thresholds = np.array(best_cost_sol)
+    #%% Save Pareto Front Results to CSV
+    # Create output directory if not exists
+    output_dir = os.path.join(base_dir, 'optimization_results')
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Calculate average thresholds for each importance group
-    # Add a small check in case a group has 0 engines (due to sampling)
-    avg_thresh_low_imp = best_policy_thresholds[simulated_engine_importance == 1].mean() if (simulated_engine_importance == 1).any() else -1
-    avg_thresh_med_imp = best_policy_thresholds[simulated_engine_importance == 2].mean() if (simulated_engine_importance == 2).any() else -1
-    avg_thresh_high_imp = best_policy_thresholds[simulated_engine_importance == 3].mean() if (simulated_engine_importance == 3).any() else -1
+    # Prepare data for all Pareto solutions (no clipping at all)
+    pareto_results = []
+    for i, sol in enumerate(pareto_front):
+        cost_val, failures_val = sol.fitness.values
+        thresh_low = float(sol[0])
+        thresh_med = float(sol[1])
+        thresh_high = float(sol[2])
+        
+        pareto_results.append({
+            'Solution_ID': i + 1,
+            'Total_Cost': cost_val,
+            'Total_Failures': failures_val,
+            'Cost_Saving_vs_Baseline': r2f_cost - cost_val,
+            'Failure_Reduction_vs_Baseline': r2f_failures - failures_val,
+            'Threshold_Low_Importance': thresh_low,
+            'Threshold_Med_Importance': thresh_med,
+            'Threshold_High_Importance': thresh_high
+        })
+    
+    # Save to CSV
+    df_pareto = pd.DataFrame(pareto_results)
+    csv_path = os.path.join(output_dir, 'pareto_front_solutions.csv')
+    df_pareto.to_csv(csv_path, index=False)
+    print(f"\n[Saved] Pareto front solutions to: {csv_path}")
+    
+    # Visualization
+    # Extract data - use all_evaluated history instead of just final pop
+    all_costs = [fit[0] for fit in all_evaluated]
+    all_failures = [fit[1] for fit in all_evaluated]
+    pareto_costs = df_pareto['Total_Cost'].values
+    pareto_failures = df_pareto['Total_Failures'].values
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.scatter(all_failures, all_costs, c='gray', s=40, alpha=0.6,
+               marker='o', label=f'Explored Solutions ({len(all_evaluated)})', zorder=1)
+    pareto_sorted = sorted(zip(pareto_failures, pareto_costs))
+    if len(pareto_sorted) > 0:
+        pf_fail, pf_cost = zip(*pareto_sorted)
+        ax.plot(pf_fail, pf_cost, color='blue', linestyle='--', linewidth=1.0, alpha=0.7, zorder=2)
+        ax.scatter(pareto_failures, pareto_costs, c='blue', s=120, alpha=0.9,
+                   marker='o', label=f'Pareto Front ({len(pareto_front)})', zorder=3)
 
-    print(f"  Overall average threshold: {np.mean(best_policy_thresholds):.2f}")
-    print(f"  Avg threshold for LOW importance (1) engines: {avg_thresh_low_imp:.2f}")
-    print(f"  Avg threshold for MED importance (2) engines: {avg_thresh_med_imp:.2f}")
-    print(f"  Avg threshold for HIGH importance (3) engines: {avg_thresh_high_imp:.2f}")
+    # Plot baseline and best solution using standard colors and markers
+    ax.scatter([r2f_failures], [r2f_cost], c='red', s=180, marker='X',
+               label='Baseline (R2F)', zorder=4)
+    ax.set_xlabel('Total Failures')
+    ax.set_ylabel('Total Cost ($)')
+    ax.set_title('NSGA-II Optimization Results')
+    ax.legend(loc='best')
+    ax.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    plt.show()
     
-    # Final conclusion
-    if (r2f_cost - cost) > 0 or (r2f_failures - failures) > 0:
-        print("\nConclusion: NSGA-II strategy successfully found Pareto solutions that outperform the baseline!")
-    else:
-        print("\nConclusion: NSGA-II did not find solutions that significantly outperform the baseline.")
-        print("Tip: Consider increasing POP_SIZE and NGEN for a more thorough search.")
