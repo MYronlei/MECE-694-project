@@ -319,6 +319,29 @@ def main():
     print(f"[info] features={len(meta['feature_cols'])}")
     print(f"[shapes] X_tr={X_tr.shape}  X_val={X_val.shape}  X_test={X_test.shape}")
 
+
+    from sklearn.decomposition import KernelPCA
+
+    print("[main] applying KPCA (RBF kernel)...", flush=True)
+    # heuristic start for gamma: 1 / num_features (tune!)
+    gamma = 1.0 / X_tr.shape[1]
+    kpca = KernelPCA(
+        n_components=50,         # tune: 30–100
+        kernel="rbf",
+        gamma=gamma,
+        fit_inverse_transform=False,
+        eigen_solver="auto",
+        n_jobs=-1
+    )
+
+    X_tr_kpca  = kpca.fit_transform(X_tr)   # fit ONLY on train
+    X_val_kpca = kpca.transform(X_val)
+    X_test_kpca= kpca.transform(X_test)
+
+    print(f"[main] KPCA reduced features {X_tr.shape[1]} → {X_tr_kpca.shape[1]}", flush=True)
+
+
+
     model = MLPRegressorCustom(
         size_hidden=[256, 128, 64],
         activation="relu",
@@ -332,12 +355,14 @@ def main():
         random_state=42,
         verbose=True,
     )
-    model.fit(X_tr, y_tr, X_val, y_val, epochs=100, patience=10)
+    # use these in training/eval
+    model.fit(X_tr_kpca, y_tr, X_val_kpca, y_val, epochs=250, patience=25)
+    y_pred_norm = model.predict(X_test_kpca)
 
-    y_pred = model.predict(X_test)
-    mae  = float(np.mean(np.abs(y_test - y_pred)))
-    rmse = float(np.sqrt(np.mean((y_test - y_pred)**2)))
-    ss_res = float(np.sum((y_test - y_pred)**2))
+    #y_pred = model.predict(X_test)
+    mae  = float(np.mean(np.abs(y_test - y_pred_norm)))
+    rmse = float(np.sqrt(np.mean((y_test - y_pred_norm)**2)))
+    ss_res = float(np.sum((y_test - y_pred_norm)**2))
     ss_tot = float(np.sum((y_test - np.mean(y_test))**2))
     r2 = 1.0 - ss_res/ss_tot
     print(f"MAE={mae:.2f}  RMSE={rmse:.2f}  R2={r2:.3f}")
