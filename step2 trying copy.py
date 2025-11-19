@@ -7,7 +7,6 @@ from pathlib import Path
 from tensorflow import keras
 from tensorflow.keras import layers
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.decomposition import KernelPCA
 
 from step1_ml_pipeline import load_cmapss_data, data_processing
 
@@ -62,72 +61,12 @@ if CAP_RUL:
     val_df["RUL"]   = np.minimum(val_df["RUL"].values, MAX_RUL)
     test_df["RUL"]  = np.minimum(test_df["RUL"].values, MAX_RUL)
 
-# Feature selection with Kernel PCA
+# Feature selection
 exclude = ["engine_id", "cycle", "RUL"]
-original_features = [c for c in train_df.columns if c not in exclude]
+feature_cols = [c for c in train_df.columns if c not in exclude]
 
-print("Original features:", len(original_features))
-
-# Apply Kernel PCA for non-linear dimensionality reduction
-# First fit with all components to compute variance
-KPCA_KERNEL = 'rbf'  # Radial basis function kernel for non-linear patterns
-KPCA_GAMMA = None  # Auto-select gamma (1 / n_features)
-VARIANCE_THRESHOLD = 0.95  # Target 95% explained variance
-
-X_train_orig = train_df[original_features].values
-
-# Fit initial KPCA to get eigenvalues
-kpca_full = KernelPCA(
-    n_components=len(original_features),
-    kernel=KPCA_KERNEL,
-    gamma=KPCA_GAMMA,
-    fit_inverse_transform=False,
-    random_state=42
-)
-kpca_full.fit(X_train_orig)
-
-# Compute cumulative explained variance and find n_components for 95%
-if hasattr(kpca_full, 'eigenvalues_') and kpca_full.eigenvalues_ is not None:
-    eigenvalues = kpca_full.eigenvalues_
-    total_var = np.sum(eigenvalues)
-    cumsum_var = np.cumsum(eigenvalues) / total_var
-    N_COMPONENTS = int(np.argmax(cumsum_var >= VARIANCE_THRESHOLD) + 1)
-    explained_var = cumsum_var[N_COMPONENTS - 1]
-    print(f"Auto-selected {N_COMPONENTS} components to explain {explained_var:.2%} variance")
-else:
-    # Fallback if eigenvalues not available
-    N_COMPONENTS = max(10, len(original_features) // 2)
-    print(f"Eigenvalues not available, using {N_COMPONENTS} components as fallback")
-
-# Refit with selected number of components
-kpca = KernelPCA(
-    n_components=N_COMPONENTS,
-    kernel=KPCA_KERNEL,
-    gamma=KPCA_GAMMA,
-    fit_inverse_transform=False,
-    random_state=42
-)
-kpca.fit(X_train_orig)
-
-# Transform all datasets
-train_df_kpca = kpca.transform(X_train_orig)
-val_df_kpca = kpca.transform(val_df[original_features].values)
-test_df_kpca = kpca.transform(test_df[original_features].values)
-
-# Create new feature column names
-feature_cols = [f"kpca_{i}" for i in range(N_COMPONENTS)]
-
-# Replace original features with KPCA components in dataframes
-for i, col in enumerate(feature_cols):
-    train_df[col] = train_df_kpca[:, i]
-    val_df[col] = val_df_kpca[:, i]
-    test_df[col] = test_df_kpca[:, i]
-
-print(f"Reduced from {len(original_features)} to {N_COMPONENTS} KPCA components using '{KPCA_KERNEL}' kernel")
-if hasattr(kpca, 'eigenvalues_') and kpca.eigenvalues_ is not None:
-    total_var = np.sum(kpca.eigenvalues_)
-    explained_var = np.sum(kpca.eigenvalues_[:N_COMPONENTS]) / total_var if total_var > 0 else 0
-    print(f"Approximate variance explained: {explained_var:.2%}")
+print("Num sensor/features:", len(feature_cols))
+print("Feature columns:", feature_cols)
 
 # Window builder
 def make_windows(
@@ -397,23 +336,6 @@ df_win = pd.DataFrame(
     }
 )
 
-# Get first window per engine (early prediction)
-df_first = (
-    df_win.sort_values(["engine_id", "cycle"])
-    .groupby("engine_id")
-    .head(1)
-    .reset_index(drop=True)
-)
-
-y_true_first = df_first["true_RUL"].to_numpy()
-y_pred_first = df_first["pred"].to_numpy()
-
-print("Per-engine first-window MAE:", mean_absolute_error(y_true_first, y_pred_first))
-print("Per-engine first-window RMSE:", mean_squared_error(y_true_first, y_pred_first, squared=False))
-print("Per-engine first-window R2:", r2_score(y_true_first, y_pred_first))
-print("Per-engine first-window NASA:", nasa_score_numpy(y_true_first, y_pred_first))
-
-# Also compute last window for comparison
 df_last = (
     df_win.sort_values(["engine_id", "cycle"])
     .groupby("engine_id")
@@ -431,26 +353,14 @@ print("Per-engine last-window NASA:", nasa_score_numpy(y_true_last, y_pred_last)
 
 # Persist predictions for downstream optimization
 per_window_path = OUTPUT_DIR / "rul_predictions_all_windows.csv"
-per_engine_first_path = OUTPUT_DIR / "rul_predictions_per_engine_first.csv"
-per_engine_last_path = OUTPUT_DIR / "rul_predictions_per_engine_last.csv"
-
+per_engine_path = OUTPUT_DIR / "rul_predictions_per_engine.csv"
 df_win.to_csv(per_window_path, index=False)
-
-# Save first window predictions
-df_first_rounded = df_first.copy()
-df_first_rounded["pred_RUL"] = np.floor(df_first_rounded["pred"]).astype(int)
-df_first_rounded = df_first_rounded.drop(columns=["pred"]).rename(columns={"true_RUL": "true_RUL", "pred_RUL": "pred_RUL"})
-df_first_rounded.to_csv(per_engine_first_path, index=False)
-
-# Save last window predictions
 df_last_rounded = df_last.copy()
 df_last_rounded["pred_RUL"] = np.floor(df_last_rounded["pred"]).astype(int)
 df_last_rounded = df_last_rounded.drop(columns=["pred"]).rename(columns={"true_RUL": "true_RUL", "pred_RUL": "pred_RUL"})
-df_last_rounded.to_csv(per_engine_last_path, index=False)
-
+df_last_rounded.to_csv(per_engine_path, index=False)
 print(f"Saved per-window predictions to {per_window_path}")
-print(f"Saved per-engine FIRST-window predictions to {per_engine_first_path}")
-print(f"Saved per-engine LAST-window predictions to {per_engine_last_path}")
+print(f"Saved per-engine predictions to {per_engine_path}")
 
 # Diagnostics to ensure predictions stay bounded
 print("y_tr range:", np.min(y_tr), np.mean(y_tr), np.max(y_tr))
