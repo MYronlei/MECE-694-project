@@ -1,3 +1,8 @@
+# =============================================================================
+# SECTION: Imports & Global Settings
+# Purpose: gather dependencies and configure dataset/training constants.
+# =============================================================================
+
 # Hybrid Conv1D + LSTM model for CMAPSS FD001 using helpers from step1_ml_pipeline.
 
 import numpy as np
@@ -29,13 +34,21 @@ CAP_RUL = MAX_RUL  # numeric cap reused to keep window builder logic intact
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Load and standardize data
+# =============================================================================
+# SECTION: Data Loading & Standardization
+# Purpose: ingest CMAPSS FD001 and normalize features for modeling.
+# =============================================================================
+
 train_df_raw, test_df_raw = load_cmapss_data(DATANAME)
 train_std, test_std, scaler = data_processing(train_df_raw, test_df_raw)
 
 print("Columns from standardized train:", list(train_std.columns))
 
-# Engine-level train/val split
+# =============================================================================
+# SECTION: Engine-Level Train/Val Split
+# Purpose: split engines into train/validation partitions reproducibly.
+# =============================================================================
+
 rng = np.random.default_rng(seed=17)
 eng_ids = train_std["engine_id"].unique()
 rng.shuffle(eng_ids)
@@ -52,7 +65,11 @@ print(f"# train engines: {train_df['engine_id'].nunique()}")
 print(f"#  val  engines: {val_df['engine_id'].nunique()}")
 print(f"# test engines:  {test_df['engine_id'].nunique()}")
 
-# Auto-calculate optimal MAX_RUL based on training data distribution
+# =============================================================================
+# SECTION: Data-Driven RUL Capping
+# Purpose: analyze RUL distribution and enforce an empirical ceiling.
+# =============================================================================
+
 print("\n=== Analyzing RUL distribution to find optimal cap ===")
 rul_train = train_df["RUL"].values
 rul_stats = {
@@ -105,7 +122,11 @@ if CAP_RUL:
     val_df["RUL"]   = np.minimum(val_df["RUL"].values, MAX_RUL)
     test_df["RUL"]  = np.minimum(test_df["RUL"].values, MAX_RUL)
 
-# Feature selection with Kernel PCA
+# =============================================================================
+# SECTION: Nonlinear Feature Engineering (Kernel PCA)
+# Purpose: compress sensor signals with KPCA before sequence modeling.
+# =============================================================================
+
 exclude = ["engine_id", "cycle", "RUL"]
 original_features = [c for c in train_df.columns if c not in exclude]
 
@@ -172,7 +193,11 @@ if hasattr(kpca, 'eigenvalues_') and kpca.eigenvalues_ is not None:
     explained_var = np.sum(kpca.eigenvalues_[:N_COMPONENTS]) / total_var if total_var > 0 else 0
     print(f"Approximate variance explained: {explained_var:.2%}")
 
-# Window builder
+# =============================================================================
+# SECTION: Window Builder Utility
+# Purpose: create sliding windows with multiple sampling strategies.
+# =============================================================================
+
 def make_windows(
     df,
     feature_cols,
@@ -222,7 +247,7 @@ def make_windows(
             bin_indices = np.digitize(candidate_ruls, bins) - 1  # bin numbers
             # For each bin pick up to max_per_bin starts (random subset if needed)
             starts = []
-            rng_local = np.random.default_rng(seed=42)
+            rng_local = np.random.default_rng(seed=17)
             for b in np.unique(bin_indices):
                 b_indices = [
                     candidate_starts[i]
@@ -259,7 +284,11 @@ def make_windows(
     else:
         return X, y
 
-# Windowed datasets (balanced train/val, dense test)
+# =============================================================================
+# SECTION: Windowed Dataset Construction
+# Purpose: generate balanced train/val windows and dense test windows.
+# =============================================================================
+
 WINDOW_STRIDE = 1
 UNIFORM_MAX_PER_BIN = 8
 
@@ -317,14 +346,22 @@ print("train_df sample rows:\n", train_df.head()[["engine_id", "cycle", "RUL"]])
 print("train_df (tail):\n", train_df.groupby("engine_id").tail(3).head(6))
 print("test_df sample rows:\n", test_df.head()[["engine_id", "cycle", "RUL"]])
 
-# Sample weights emphasize low-RUL windows
+# =============================================================================
+# SECTION: Sample Weighting
+# Purpose: emphasize low-RUL regimes during training via simple heuristics.
+# =============================================================================
+
 def compute_sample_weights(y, max_rul=MAX_RUL):
     w = 1.0 + (max_rul - np.clip(y, 0, max_rul)) / float(max_rul)
     return w
 
 w_tr = compute_sample_weights(y_tr) if USE_SAMPLE_WEIGHTS else None
 
-# Model: Conv front-end -> BiLSTM -> attention -> dense regression
+# =============================================================================
+# SECTION: Model Definition
+# Purpose: assemble Conv-BiLSTM-Attention architecture for RUL regression.
+# =============================================================================
+
 class TemporalAttention(layers.Layer):
     def __init__(self, units=64, **kwargs):
         super().__init__(**kwargs)
@@ -371,7 +408,11 @@ out = layers.Dense(1, activation="linear")(h)
 model = keras.Model(inputs=inp, outputs=out)
 model.summary()
 
-# Compile & metrics
+# =============================================================================
+# SECTION: Compilation & Training Setup
+# Purpose: configure loss, metrics, and callbacks before fitting.
+# =============================================================================
+
 loss_fn = keras.losses.Huber(delta=10.0)
 opt = keras.optimizers.Adam(learning_rate=LEARNING_RATE, clipnorm=1.0)
 
@@ -404,7 +445,11 @@ ckpt = keras.callbacks.ModelCheckpoint(
     save_best_only=True,
 )
 
-# Train model
+# =============================================================================
+# SECTION: Supervised Training
+# Purpose: fit the model on windowed data with callbacks and weights.
+# =============================================================================
+
 history = model.fit(
     X_tr,
     y_tr,
@@ -416,7 +461,11 @@ history = model.fit(
     verbose=2,
 )
 
-# Evaluate per-window and per-engine
+# =============================================================================
+# SECTION: Evaluation & Diagnostics
+# Purpose: score the model on dense test windows and engine aggregates.
+# =============================================================================
+
 y_pred_te = model.predict(X_te).ravel()
 
 mae = mean_absolute_error(y_te, y_pred_te)
@@ -472,7 +521,11 @@ print("Per-engine last-window RMSE:", mean_squared_error(y_true_last, y_pred_las
 print("Per-engine last-window R2:", r2_score(y_true_last, y_pred_last))
 print("Per-engine last-window NASA:", nasa_score_numpy(y_true_last, y_pred_last))
 
-# Persist predictions for downstream optimization
+# =============================================================================
+# SECTION: Prediction Persistence
+# Purpose: export per-window and per-engine CSVs for optimization.
+# =============================================================================
+
 per_window_path = OUTPUT_DIR / "rul_predictions_all_windows.csv"
 per_engine_first_path = OUTPUT_DIR / "rul_predictions_per_engine_first.csv"
 per_engine_last_path = OUTPUT_DIR / "rul_predictions_per_engine_last.csv"
@@ -495,7 +548,11 @@ print(f"Saved per-window predictions to {per_window_path}")
 print(f"Saved per-engine FIRST-window predictions to {per_engine_first_path}")
 print(f"Saved per-engine LAST-window predictions to {per_engine_last_path}")
 
-# Diagnostics to ensure predictions stay bounded
+# =============================================================================
+# SECTION: Final Range Diagnostics
+# Purpose: ensure predicted/test RUL ranges remain sane.
+# =============================================================================
+
 print("y_tr range:", np.min(y_tr), np.mean(y_tr), np.max(y_tr))
 print("y_te range:", np.min(y_te), np.mean(y_te), np.max(y_te))
 print("y_pred_te range:", np.min(y_pred_te), np.mean(y_pred_te), np.max(y_pred_te))
