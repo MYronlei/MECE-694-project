@@ -30,6 +30,8 @@ LEARNING_RATE = 1e-3
 USE_SAMPLE_WEIGHTS = True
 LAST_K_WINDOWS = 3
 
+CYCLE_EXPORT_TARGETS = [60, 90]  # per-engine snapshots near these cycles
+
 CAP_RUL = MAX_RUL  # numeric cap reused to keep window builder logic intact
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -543,6 +545,22 @@ df_last_rounded = df_last.copy()
 df_last_rounded["pred_RUL"] = np.floor(df_last_rounded["pred"]).astype(int)
 df_last_rounded = df_last_rounded.drop(columns=["pred"]).rename(columns={"true_RUL": "true_RUL", "pred_RUL": "pred_RUL"})
 df_last_rounded.to_csv(per_engine_last_path, index=False)
+
+# Save per-engine snapshots near target cycles
+def save_cycle_snapshot(df_source, cycle_target):
+    rows = []
+    for eng_id, eng_df in df_source.groupby("engine_id"):
+        idx = (eng_df["cycle"] - cycle_target).abs().values.argmin()
+        rows.append(eng_df.iloc[idx])
+    df_cycle = pd.DataFrame(rows).reset_index(drop=True)
+    df_cycle["pred_RUL"] = np.floor(df_cycle["pred"]).astype(int)
+    df_cycle = df_cycle.drop(columns=["pred"]).rename(columns={"true_RUL": "true_RUL", "pred_RUL": "pred_RUL"})
+    out_path = OUTPUT_DIR / f"rul_predictions_per_engine_cycle{cycle_target}.csv"
+    df_cycle.to_csv(out_path, index=False)
+    print(f"Saved per-engine cycle~{cycle_target} predictions to {out_path}")
+
+for target_cycle in CYCLE_EXPORT_TARGETS:
+    save_cycle_snapshot(df_win, target_cycle)
 
 print(f"Saved per-window predictions to {per_window_path}")
 print(f"Saved per-engine FIRST-window predictions to {per_engine_first_path}")
