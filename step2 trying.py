@@ -52,7 +52,50 @@ print(f"# train engines: {train_df['engine_id'].nunique()}")
 print(f"#  val  engines: {val_df['engine_id'].nunique()}")
 print(f"# test engines:  {test_df['engine_id'].nunique()}")
 
-# Cap targets to MAX_RUL when requested
+# Auto-calculate optimal MAX_RUL based on training data distribution
+print("\n=== Analyzing RUL distribution to find optimal cap ===")
+rul_train = train_df["RUL"].values
+rul_stats = {
+    "min": rul_train.min(),
+    "mean": rul_train.mean(),
+    "median": np.median(rul_train),
+    "90th": np.percentile(rul_train, 90),
+    "95th": np.percentile(rul_train, 95),
+    "99th": np.percentile(rul_train, 99),
+    "max": rul_train.max()
+}
+print(f"RUL stats: min={rul_stats['min']:.1f}, mean={rul_stats['mean']:.1f}, "
+      f"median={rul_stats['median']:.1f}, 90%={rul_stats['90th']:.1f}, "
+      f"95%={rul_stats['95th']:.1f}, 99%={rul_stats['99th']:.1f}, max={rul_stats['max']:.1f}")
+
+# Test candidate caps: no cap, 95th percentile, 125 (common in literature), current MAX_RUL
+candidate_caps = [
+    None,  # No cap
+    rul_stats['95th'],
+    125,  # Common threshold in CMAPSS literature
+    MAX_RUL
+]
+
+# Compute percentage of data affected by each cap
+print("\nCandidate MAX_RUL values and impact:")
+for cap in candidate_caps:
+    if cap is None:
+        pct_affected = 0
+        print(f"  No cap: 0.0% of data affected")
+    else:
+        pct_affected = 100 * np.mean(rul_train > cap)
+        print(f"  {cap:.1f}: {pct_affected:.1f}% of data will be capped")
+
+# Use 95th percentile as optimal (balances outlier reduction with data retention)
+OPTIMAL_MAX_RUL = rul_stats['95th']
+print(f"\n✓ Selected optimal MAX_RUL = {OPTIMAL_MAX_RUL:.1f} (95th percentile)")
+print(f"  This will cap {100 * np.mean(rul_train > OPTIMAL_MAX_RUL):.1f}% of high-RUL values")
+
+# Override MAX_RUL and CAP_RUL with optimal value
+MAX_RUL = OPTIMAL_MAX_RUL
+CAP_RUL = MAX_RUL
+
+# Cap targets to optimal MAX_RUL
 if CAP_RUL:
     train_df = train_df.copy()
     val_df   = val_df.copy()
@@ -72,7 +115,7 @@ print("Original features:", len(original_features))
 # First fit with all components to compute variance
 KPCA_KERNEL = 'rbf'  # Radial basis function kernel for non-linear patterns
 KPCA_GAMMA = None  # Auto-select gamma (1 / n_features)
-VARIANCE_THRESHOLD = 0.95  # Target 95% explained variance
+VARIANCE_THRESHOLD = 0.98  # Target 95% explained variance
 
 X_train_orig = train_df[original_features].values
 
@@ -82,7 +125,7 @@ kpca_full = KernelPCA(
     kernel=KPCA_KERNEL,
     gamma=KPCA_GAMMA,
     fit_inverse_transform=False,
-    random_state=42
+    random_state=17
 )
 kpca_full.fit(X_train_orig)
 
@@ -105,7 +148,7 @@ kpca = KernelPCA(
     kernel=KPCA_KERNEL,
     gamma=KPCA_GAMMA,
     fit_inverse_transform=False,
-    random_state=42
+    random_state=17
 )
 kpca.fit(X_train_orig)
 
