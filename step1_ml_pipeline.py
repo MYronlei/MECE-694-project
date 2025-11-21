@@ -102,14 +102,14 @@ def main():
 
     # Train a sample MLPRegressor on RUL
     model = MLPRegressor(
-        hidden_layer_sizes=(256, 128, 32, 64),
-        activation='relu',
+        hidden_layer_sizes=(512, 256, 128, 64),
+        activation='tanh',
         solver='adam',
         max_iter=1000,
         early_stopping=True,
         validation_fraction=0.15,
-        n_iter_no_change=20,
-        random_state=42,
+        n_iter_no_change=50,
+        random_state=2,
         verbose=False,
     )
 
