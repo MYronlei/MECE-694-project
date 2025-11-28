@@ -117,6 +117,61 @@ def plot_initial_rul(train_df, test_df):
     return fig_train, fig_test
 
 
+def plot_pred_vs_true(pred_path, title, per_engine_last=False):
+    """Scatter plot of predicted vs true RUL from model outputs."""
+    if not pred_path.exists():
+        print(f"Prediction file not found: {pred_path}")
+        return None
+    df = pd.read_csv(pred_path)
+    required = {"true_RUL", "pred"}
+    if per_engine_last:
+        required |= {"engine_id", "cycle"}
+    if not required.issubset(df.columns):
+        print(f"Prediction file missing required columns: {pred_path}")
+        return None
+
+    if per_engine_last:
+        df = (
+            df.sort_values(["engine_id", "cycle"])
+            .groupby("engine_id")
+            .tail(1)
+            .reset_index(drop=True)
+        )
+
+    err = (df["pred"] - df["true_RUL"]).abs()
+    cmap = plt.cm.viridis
+    norm = plt.Normalize(vmin=err.min(), vmax=err.max())
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    sc = ax.scatter(
+        df["true_RUL"],
+        df["pred"],
+        c=err,
+        cmap=cmap,
+        norm=norm,
+        alpha=0.7,
+        s=14,
+        edgecolor="none",
+    )
+    lims = [
+        min(df["true_RUL"].min(), df["pred"].min()),
+        max(df["true_RUL"].max(), df["pred"].max()),
+    ]
+    ax.plot(lims, lims, "k--", lw=1, label="Ideal")
+    ax.plot(lims, [l + 20 for l in lims], "k:", lw=1, label="+20")
+    ax.plot(lims, [l - 20 for l in lims], "k-.", lw=1, label="-20")
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
+    ax.set_xlabel("True RUL")
+    ax.set_ylabel("Predicted RUL")
+    ax.set_title(title)
+    ax.legend()
+    cbar = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("|Pred - True|")
+    ax.grid(alpha=0.2)
+    return fig
+
+
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -125,6 +180,8 @@ def main():
 
     exclude = ["engine_id", "cycle", "RUL"]
     sensor_cols = [c for c in train_std.columns if c not in exclude]
+    corr_series = train_std[sensor_cols + ["RUL"]].corr(method="pearson")["RUL"].drop("RUL")
+    top4_corr_sensors = corr_series.abs().sort_values(ascending=False).head(4).index.tolist()
 
     print(f"Train shape: {train_std.shape}, engines: {train_std.engine_id.nunique()}, cycles: {train_std.cycle.min()}-{train_std.cycle.max()}")
     print(f"Test shape:  {test_std.shape},  engines: {test_std.engine_id.nunique()}, cycles: {test_std.cycle.min()}-{test_std.cycle.max()}")
@@ -137,6 +194,7 @@ def main():
     plots = {
         "corr_subset_pearson.png": plot_corr_heatmap(train_std, sensor_cols, method="pearson"),
         "corr_subset_spearman.png": plot_corr_heatmap(train_std, sensor_cols, method="spearman"),
+        "corr_top4_pearson.png": plot_corr_heatmap(train_std, top4_corr_sensors, max_cols=4, method="pearson"),
     }
 
 
@@ -145,6 +203,15 @@ def main():
         "initial_rul_train.png": fig_init_train,
         "initial_rul_test.png": fig_init_test,
     })
+
+    pred_path = Path(__file__).resolve().parent / "output" / "rul_predictions_all_windows.csv"
+    scatter_fig = plot_pred_vs_true(
+        pred_path,
+        "Predicted vs True RUL (test engines: last window)",
+        per_engine_last=True,
+    )
+    if scatter_fig is not None:
+        plots["pred_vs_true_last_scatter.png"] = scatter_fig
 
     for name, fig in plots.items():
         out_path = OUTPUT_DIR / name

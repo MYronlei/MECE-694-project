@@ -12,7 +12,6 @@ from pathlib import Path
 from tensorflow import keras
 from tensorflow.keras import layers
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.decomposition import KernelPCA
 
 from step1_ml_pipeline import load_cmapss_data, data_processing
 
@@ -26,6 +25,7 @@ WINDOW_SIZE = 30
 BATCH_SIZE = 256
 EPOCHS = 70
 LEARNING_RATE = 1e-3
+VERBOSE_DIAGNOSTICS = False  # set True to print extra range stats at end
 
 USE_SAMPLE_WEIGHTS = True
 LAST_K_WINDOWS = 3
@@ -35,6 +35,7 @@ CYCLE_EXPORT_TARGETS = [60, 90]  # per-engine snapshots near these cycles
 CAP_RUL = MAX_RUL  # numeric cap reused to keep window builder logic intact
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+TOP_K_CORR_FEATURES = 11 # number of features to keep by |Pearson| corr with RUL
 
 # =============================================================================
 # SECTION: Data Loading & Standardization
@@ -125,75 +126,17 @@ if CAP_RUL:
     test_df["RUL"]  = np.minimum(test_df["RUL"].values, MAX_RUL)
 
 # =============================================================================
-# SECTION: Nonlinear Feature Engineering (Kernel PCA)
-# Purpose: compress sensor signals with KPCA before sequence modeling.
+# SECTION: Feature Selection via Pearson Correlation
+# Purpose: keep top raw features most correlated with RUL (no KPCA).
 # =============================================================================
 
 exclude = ["engine_id", "cycle", "RUL"]
 original_features = [c for c in train_df.columns if c not in exclude]
 
-print("Original features:", len(original_features))
-
-# Apply Kernel PCA for non-linear dimensionality reduction
-# First fit with all components to compute variance
-KPCA_KERNEL = 'rbf'  # Radial basis function kernel for non-linear patterns
-KPCA_GAMMA = None  # Auto-select gamma (1 / n_features)
-VARIANCE_THRESHOLD = 0.98  # Target 95% explained variance
-
-X_train_orig = train_df[original_features].values
-
-# Fit initial KPCA to get eigenvalues
-kpca_full = KernelPCA(
-    n_components=len(original_features),
-    kernel=KPCA_KERNEL,
-    gamma=KPCA_GAMMA,
-    fit_inverse_transform=False,
-    random_state=17
-)
-kpca_full.fit(X_train_orig)
-
-# Compute cumulative explained variance and find n_components for 95%
-if hasattr(kpca_full, 'eigenvalues_') and kpca_full.eigenvalues_ is not None:
-    eigenvalues = kpca_full.eigenvalues_
-    total_var = np.sum(eigenvalues)
-    cumsum_var = np.cumsum(eigenvalues) / total_var
-    N_COMPONENTS = int(np.argmax(cumsum_var >= VARIANCE_THRESHOLD) + 1)
-    explained_var = cumsum_var[N_COMPONENTS - 1]
-    print(f"Auto-selected {N_COMPONENTS} components to explain {explained_var:.2%} variance")
-else:
-    # Fallback if eigenvalues not available
-    N_COMPONENTS = max(10, len(original_features) // 2)
-    print(f"Eigenvalues not available, using {N_COMPONENTS} components as fallback")
-
-# Refit with selected number of components
-kpca = KernelPCA(
-    n_components=N_COMPONENTS,
-    kernel=KPCA_KERNEL,
-    gamma=KPCA_GAMMA,
-    fit_inverse_transform=False,
-    random_state=17
-)
-kpca.fit(X_train_orig)
-
-# Transform all datasets
-train_df_kpca = kpca.transform(X_train_orig)
-val_df_kpca = kpca.transform(val_df[original_features].values)
-test_df_kpca = kpca.transform(test_df[original_features].values)
-
-# Create new feature column names
-feature_cols = [f"kpca_{i}" for i in range(N_COMPONENTS)]
-
-# Replace original features with KPCA components in dataframes
-for i, col in enumerate(feature_cols):
-    train_df[col] = train_df_kpca[:, i]
-    val_df[col] = val_df_kpca[:, i]
-    test_df[col] = test_df_kpca[:, i]
-
-print(f"Reduced from {len(original_features)} to {N_COMPONENTS} KPCA components using '{KPCA_KERNEL}' kernel")
-if hasattr(kpca, 'eigenvalues_') and kpca.eigenvalues_ is not None:
-    total_var = np.sum(kpca.eigenvalues_)
-    explained_var = np.sum(kpca.eigenvalues_[:N_COMPONENTS]) / total_var if total_var > 0 else 0
-    print(f"Approximate variance explained: {explained_var:.2%}")
+corr_series = train_df[original_features + ["RUL"]].corr(method="pearson")["RUL"].drop("RUL")
+feature_cols = corr_series.abs().sort_values(ascending=False).head(TOP_K_CORR_FEATURES).index.tolist()
+print(f"Selected {len(feature_cols)} features by |Pearson| correlation with RUL:")
+print(feature_cols)
 
 # =============================================================================
 # SECTION: Window Builder Utility
@@ -322,31 +265,7 @@ X_te, y_te, eng_te, cyc_te = make_windows(
     return_meta=True,
 )
 
-print("Ranges after resampling:")
-print("Train y:", y_tr.min(), y_tr.mean(), y_tr.max())
-print("Val   y:", y_val.min(), y_val.mean(), y_val.max())
-print("Test  y:", y_te.min(), y_te.mean(), y_te.max())
 
-print("Shapes: X_tr, X_val, X_te:", X_tr.shape, X_val.shape, X_te.shape)
-
-# Quick numeric checks
-print("y_tr: n, min, mean, max:", len(y_tr), np.min(y_tr), np.mean(y_tr), np.max(y_tr))
-print("y_val: n, min, mean, max:", len(y_val), np.min(y_val), np.mean(y_val), np.max(y_val))
-print("y_te:  n, min, mean, max:", len(y_te), np.min(y_te), np.mean(y_te), np.max(y_te))
-
-# Inspect RUL columns in base dataframes
-print("train_df RUL stats:", train_df["RUL"].describe())
-print("val_df RUL stats:  ", val_df["RUL"].describe())
-print("test_df RUL stats: ", test_df["RUL"].describe())
-
-if "df_train_feats" in globals():
-    print("df_train_feats['RUL'] stats:", df_train_feats["RUL"].describe())
-if "df_test_feats" in globals():
-    print("df_test_feats['RUL'] stats:", df_test_feats["RUL"].describe())
-
-print("train_df sample rows:\n", train_df.head()[["engine_id", "cycle", "RUL"]])
-print("train_df (tail):\n", train_df.groupby("engine_id").tail(3).head(6))
-print("test_df sample rows:\n", test_df.head()[["engine_id", "cycle", "RUL"]])
 
 # =============================================================================
 # SECTION: Sample Weighting
@@ -442,7 +361,7 @@ reduce_lr = keras.callbacks.ReduceLROnPlateau(
     verbose=1,
 )
 ckpt = keras.callbacks.ModelCheckpoint(
-    str(OUTPUT_DIR / "best_cnn_lstm_rul.h5"),
+    str(OUTPUT_DIR / "best_cnn_lstm_rul.keras"),
     monitor="val_loss",
     save_best_only=True,
 )
@@ -571,6 +490,7 @@ print(f"Saved per-engine LAST-window predictions to {per_engine_last_path}")
 # Purpose: ensure predicted/test RUL ranges remain sane.
 # =============================================================================
 
-print("y_tr range:", np.min(y_tr), np.mean(y_tr), np.max(y_tr))
-print("y_te range:", np.min(y_te), np.mean(y_te), np.max(y_te))
-print("y_pred_te range:", np.min(y_pred_te), np.mean(y_pred_te), np.max(y_pred_te))
+if VERBOSE_DIAGNOSTICS:
+    print("y_tr range:", np.min(y_tr), np.mean(y_tr), np.max(y_tr))
+    print("y_te range:", np.min(y_te), np.mean(y_te), np.max(y_te))
+    print("y_pred_te range:", np.min(y_pred_te), np.mean(y_pred_te), np.max(y_pred_te))
