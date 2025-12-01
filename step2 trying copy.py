@@ -319,13 +319,17 @@ mae = mean_absolute_error(y_te, y_pred_te)
 rmse = mean_squared_error(y_te, y_pred_te, squared=False)
 r2 = r2_score(y_te, y_pred_te)
 
-def nasa_score_numpy(y_true, y_pred):
+def s_score_numpy(y_true, y_pred):
     d = y_pred - y_true
-    s = np.where(d >= 0, np.exp(d / 13.0) - 1.0, np.exp(-d / 10.0) - 1.0)
-    return float(np.sum(s))
+    penalties = np.where(d >= 0, np.exp(d / 13.0) - 1.0, np.exp(-d / 10.0) - 1.0)
+    return float(np.sum(penalties))
+
+def nasa_score_numpy(y_true, y_pred):
+    return s_score_numpy(y_true, y_pred)
 
 nasa = nasa_score_numpy(y_te, y_pred_te)
-print("Per-window Test MAE:", mae, "RMSE:", rmse, "R2:", r2, "NASA:", nasa)
+s_score = s_score_numpy(y_te, y_pred_te)
+print("Per-window Test MAE:", mae, "RMSE:", rmse, "R2:", r2, "NASA:", nasa, "S-score:", s_score)
 
 df_win = pd.DataFrame(
     {
@@ -350,6 +354,7 @@ print("Per-engine last-window MAE:", mean_absolute_error(y_true_last, y_pred_las
 print("Per-engine last-window RMSE:", mean_squared_error(y_true_last, y_pred_last, squared=False))
 print("Per-engine last-window R2:", r2_score(y_true_last, y_pred_last))
 print("Per-engine last-window NASA:", nasa_score_numpy(y_true_last, y_pred_last))
+print("Per-engine last-window S-score:", s_score_numpy(y_true_last, y_pred_last))
 
 # Persist predictions for downstream optimization
 per_window_path = OUTPUT_DIR / "rul_predictions_all_windows.csv"
