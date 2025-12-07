@@ -64,6 +64,41 @@ def plot_corr_heatmap(train_df, sensor_cols, max_cols=12, method="pearson"):
     return fig
 
 
+def plot_complete_corr_heatmap(train_df, sensor_cols, method="pearson"):
+    """Generate complete correlation heatmap for all features including RUL."""
+    # Calculate correlation matrix for all sensors plus RUL
+    corr = train_df[sensor_cols + ["RUL"]].corr(method=method)
+    
+    # Determine figure size based on number of features
+    n_features = len(corr.columns)
+    fig_size = max(12, n_features * 0.4)  # Scale figure size with number of features
+    
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    cax = ax.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1, aspect='auto')
+    
+    # Set ticks and labels
+    ax.set_xticks(range(len(corr.columns)))
+    ax.set_yticks(range(len(corr.index)))
+    
+    # Adjust font size based on number of features
+    fontsize = max(6, min(10, 120 / n_features))
+    ax.set_xticklabels(corr.columns, rotation=90, ha="right", fontsize=fontsize)
+    ax.set_yticklabels(corr.index, fontsize=fontsize)
+    
+    ax.set_title(f"Complete Correlation Heatmap - All Features ({method.capitalize()})", 
+                 fontsize=14, fontweight='bold', pad=20)
+    
+    cbar = fig.colorbar(cax, ax=ax, fraction=0.046, pad=0.04, label="Correlation")
+    cbar.ax.tick_params(labelsize=10)
+    
+    # Add gridlines for better readability
+    ax.set_xticks([x - 0.5 for x in range(1, len(corr.columns))], minor=True)
+    ax.set_yticks([y - 0.5 for y in range(1, len(corr.index))], minor=True)
+    ax.grid(which="minor", color="gray", linestyle='-', linewidth=0.5, alpha=0.2)
+    
+    return fig
+
+
 def plot_sensor_time(train_df, test_df, sensor_cols, top_k=3):
     """Plot top-variance sensors vs cycle for one train and one test engine."""
     stats = train_df[sensor_cols].agg(["std"]).T.sort_values("std", ascending=False)
@@ -115,6 +150,55 @@ def plot_initial_rul(train_df, test_df):
     fig_train = _plot(init_train, "Initial RUL per engine (train)")
     fig_test = _plot(init_test, "Initial RUL per engine (test)")
     return fig_train, fig_test
+
+
+def plot_training_history(history_path):
+    """Plot training and validation loss convergence over epochs."""
+    if not history_path.exists():
+        print(f"Training history file not found: {history_path}")
+        return None
+    
+    df_history = pd.read_csv(history_path)
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Loss plot
+    if 'loss' in df_history.columns and 'val_loss' in df_history.columns:
+        epochs = range(1, len(df_history) + 1)
+        ax1.plot(epochs, df_history['loss'], 'b-', label='Training Loss', linewidth=2)
+        ax1.plot(epochs, df_history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+        ax1.set_xlabel('Epoch', fontsize=11)
+        ax1.set_ylabel('Loss', fontsize=11)
+        ax1.set_title('Model Loss Convergence', fontsize=12, fontweight='bold')
+        ax1.legend(fontsize=10)
+        ax1.grid(alpha=0.3)
+    
+    # MAE plot (if available)
+    mae_cols = [c for c in df_history.columns if 'mae' in c.lower()]
+    if len(mae_cols) >= 2:
+        train_mae = [c for c in mae_cols if 'val' not in c][0]
+        val_mae = [c for c in mae_cols if 'val' in c][0]
+        epochs = range(1, len(df_history) + 1)
+        ax2.plot(epochs, df_history[train_mae], 'b-', label='Training MAE', linewidth=2)
+        ax2.plot(epochs, df_history[val_mae], 'r-', label='Validation MAE', linewidth=2)
+        ax2.set_xlabel('Epoch', fontsize=11)
+        ax2.set_ylabel('MAE', fontsize=11)
+        ax2.set_title('Mean Absolute Error Convergence', fontsize=12, fontweight='bold')
+        ax2.legend(fontsize=10)
+        ax2.grid(alpha=0.3)
+    else:
+        # If no MAE, plot learning rate or other metric
+        lr_col = [c for c in df_history.columns if 'lr' in c.lower()]
+        if lr_col:
+            epochs = range(1, len(df_history) + 1)
+            ax2.plot(epochs, df_history[lr_col[0]], 'g-', linewidth=2)
+            ax2.set_xlabel('Epoch', fontsize=11)
+            ax2.set_ylabel('Learning Rate', fontsize=11)
+            ax2.set_title('Learning Rate Schedule', fontsize=12, fontweight='bold')
+            ax2.set_yscale('log')
+            ax2.grid(alpha=0.3)
+    
+    return fig
 
 
 def plot_pred_vs_true(pred_path, title, per_engine_last=False):
@@ -192,8 +276,8 @@ def main():
     ))
 
     plots = {
+        "corr_complete_pearson.png": plot_complete_corr_heatmap(train_std, sensor_cols, method="pearson"),
         "corr_subset_pearson.png": plot_corr_heatmap(train_std, sensor_cols, method="pearson"),
-        "corr_subset_spearman.png": plot_corr_heatmap(train_std, sensor_cols, method="spearman"),
         "corr_top4_pearson.png": plot_corr_heatmap(train_std, top4_corr_sensors, max_cols=4, method="pearson"),
     }
 
@@ -212,6 +296,12 @@ def main():
     )
     if scatter_fig is not None:
         plots["pred_vs_true_last_scatter.png"] = scatter_fig
+
+    # Add training history plot
+    history_path = Path(__file__).resolve().parent / "output" / "training_history.csv"
+    history_fig = plot_training_history(history_path)
+    if history_fig is not None:
+        plots["training_convergence.png"] = history_fig
 
     for name, fig in plots.items():
         out_path = OUTPUT_DIR / name
