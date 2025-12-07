@@ -109,7 +109,7 @@ def main():
         early_stopping=True,
         validation_fraction=0.15,
         n_iter_no_change=20,
-        random_state=42,
+        random_state=1,
         verbose=False,
     )
 
