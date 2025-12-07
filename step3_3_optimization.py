@@ -48,7 +48,8 @@ CYCLES_PER_SHIFT = 1  # number of cycles consumed per shift (adjustable)
 
 # --- NSGA-II Genetic Algorithm Parameters ---
 POP_SIZE = 100  # population size
-NGEN = 150  # number of generations 
+GEN = 150  # number of generations 
+NGEN = 150
 CXPB = 0.8    # crossover probability 
 MUTPB = 0.2   # mutation probability
 
