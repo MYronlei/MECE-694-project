@@ -2,6 +2,18 @@
 """
 Lightweight EDA for CMAPSS FD001 using existing load/data_processing helpers.
 Generates a few summary plots into output/eda/.
+
+EXECUTION:
+Run this script after step1_ml_pipeline.py and step2 trying.py have generated their outputs.
+Execute with: python Plots.py
+
+OUTPUT:
+Creates visualizations in output/eda/ directory including:
+- Complete and subset correlation heatmaps (Pearson method) showing sensor-RUL relationships
+- Initial RUL distribution bar charts for train and test engines
+- Predicted vs True RUL scatter plots with error visualization (if prediction files exist)
+- Training loss and MAE convergence plots showing model learning behavior (if training history exists)
+All plots are saved as high-resolution PNG files (200 DPI) with dataset statistics printed to console.
 """
 
 import numpy as np
@@ -13,41 +25,6 @@ from step1_ml_pipeline import load_cmapss_data, data_processing
 
 DATANAME = "FD001"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output" / "eda"
-
-
-def plot_rul_hist(train_df):
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.hist(train_df["RUL"], bins=60, color="#3b82f6", edgecolor="white", alpha=0.9)
-    ax.set_title("RUL distribution (train)")
-    ax.set_xlabel("RUL")
-    ax.set_ylabel("Count")
-    ax.grid(alpha=0.25)
-    return fig
-
-
-def plot_sensor_spread(train_df, sensor_cols, top_k=15):
-    stats = train_df[sensor_cols].agg(["mean", "std"]).T
-    top = stats.sort_values("std", ascending=False).head(top_k)
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.barh(top.index, top["std"], color="#10b981", alpha=0.8)
-    ax.set_title(f"Top {top_k} sensors by std (scaled)")
-    ax.set_xlabel("Std Dev")
-    ax.invert_yaxis()
-    return fig
-
-
-def plot_rul_trajectories(train_df, n_engines=6):
-    fig, ax = plt.subplots(figsize=(8, 5))
-    sample_ids = train_df["engine_id"].unique()[:n_engines]
-    for eid in sample_ids:
-        eng = train_df[train_df.engine_id == eid].sort_values("cycle")
-        ax.plot(eng["cycle"], eng["RUL"], label=f"Engine {eid}")
-    ax.set_title("RUL trajectories for sample engines")
-    ax.set_xlabel("Cycle")
-    ax.set_ylabel("RUL")
-    ax.legend(ncol=2, fontsize=8)
-    ax.grid(alpha=0.2)
-    return fig
 
 
 def plot_corr_heatmap(train_df, sensor_cols, max_cols=12, method="pearson"):
@@ -97,32 +74,6 @@ def plot_complete_corr_heatmap(train_df, sensor_cols, method="pearson"):
     ax.grid(which="minor", color="gray", linestyle='-', linewidth=0.5, alpha=0.2)
     
     return fig
-
-
-def plot_sensor_time(train_df, test_df, sensor_cols, top_k=3):
-    """Plot top-variance sensors vs cycle for one train and one test engine."""
-    stats = train_df[sensor_cols].agg(["std"]).T.sort_values("std", ascending=False)
-    top_sensors = stats.head(top_k).index.tolist()
-
-    # pick one representative engine from train and test
-    train_eid = int(train_df["engine_id"].iloc[0])
-    test_eid = int(test_df["engine_id"].iloc[0])
-
-    def _plot_one(df, eid, title):
-        fig, ax = plt.subplots(figsize=(8, 5))
-        eng = df[df.engine_id == eid].sort_values("cycle")
-        for s in top_sensors:
-            ax.plot(eng["cycle"], eng[s], label=s)
-        ax.set_title(title)
-        ax.set_xlabel("Cycle")
-        ax.set_ylabel("Scaled sensor value")
-        ax.legend(fontsize=8)
-        ax.grid(alpha=0.2)
-        return fig
-
-    fig_train = _plot_one(train_df, train_eid, f"Top sensors vs cycle (train engine {train_eid})")
-    fig_test = _plot_one(test_df, test_eid, f"Top sensors vs cycle (test engine {test_eid})")
-    return fig_train, fig_test
 
 
 def plot_initial_rul(train_df, test_df):
