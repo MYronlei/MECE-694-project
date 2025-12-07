@@ -72,7 +72,7 @@ pip install numpy pandas scikit-learn tensorflow scikit-fuzzy deap matplotlib
 python step1_ml_pipeline.py
 
 # Step 2: Train CNN-LSTM RUL predictor
-python "step2 trying.py"
+python "step2_model.py"
 
 # Step 3.2: Visualize fuzzy logic system
 python step3_2_fuzzy_viz.py
