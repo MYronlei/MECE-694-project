@@ -1,20 +1,4 @@
-#!/usr/bin/env python3
-"""
-Lightweight EDA for CMAPSS FD001 using existing load/data_processing helpers.
-Generates a few summary plots into output/eda/.
 
-EXECUTION:
-Run this script after step1_ml_pipeline.py and step2 trying.py have generated their outputs.
-Execute with: python Plots.py
-
-OUTPUT:
-Creates visualizations in output/eda/ directory including:
-- Complete and subset correlation heatmaps (Pearson method) showing sensor-RUL relationships
-- Initial RUL distribution bar charts for train and test engines
-- Predicted vs True RUL scatter plots with error visualization (if prediction files exist)
-- Training loss and MAE convergence plots showing model learning behavior (if training history exists)
-All plots are saved as high-resolution PNG files (200 DPI) with dataset statistics printed to console.
-"""
 
 import numpy as np
 import pandas as pd
@@ -24,7 +8,7 @@ from pathlib import Path
 from step1_ml_pipeline import load_cmapss_data, data_processing
 
 DATANAME = "FD001"
-OUTPUT_DIR = Path(__file__).resolve().parent / "output" / "eda"
+OUTPUT_DIR = Path(__file__).resolve().parent / "output" / "output_plot"
 
 
 def plot_corr_heatmap(train_df, sensor_cols, max_cols=12, method="pearson"):
@@ -261,7 +245,7 @@ def main():
         plt.close(fig)
         print(f"Saved {out_path}")
 
-    print("EDA complete. Inspect PNGs in output/eda/.")
+    print("EDA complete. Inspect PNGs in output/output_plot/.")
 
 
 if __name__ == "__main__":

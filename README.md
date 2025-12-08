@@ -98,4 +98,4 @@ NASA C-MAPSS (Commercial Modular Aero-Propulsion System Simulation) - FD001 subs
 
 ## Authors
 
-MECE-694 Project Team
+Mengyu Lei and Yongru Pan
