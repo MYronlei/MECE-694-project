@@ -643,7 +643,7 @@ $$\boxed{v_{gq} = R\,i_{gq} + L\,\frac{di_{gq}}{dt} + \omega L\,i_{gd} + v_{rq}}
   </tr>
 </table>
 
-<p><strong>关键取舍</strong>：dq 变换用"引入交叉耦合项"的代价，换来了"稳态量变为直流"的巨大优势。而交叉耦合项可以通过控制器中的<strong>前馈解耦</strong>来消除（见第 5 节）。</p>
+<p><strong>关键取舍</strong>：dq 变换用"引入交叉耦合项"的代价，换来了"稳态量变为直流"的巨大优势。而交叉耦合项可以通过控制器中的<strong>前馈解耦</strong>来消除（见第 6 节）。</p>
 
 <h3>3.5 dq 坐标系中电网电压的对齐</h3>
 
@@ -660,9 +660,175 @@ $$v_{gd} = V_g, \qquad v_{gq} = 0$$
 <hr>
 
 <!-- ============================== Section 4 ============================== -->
-<h2>4. 功率分析</h2>
+<h2>4. 锁相环 (PLL) —— Park 变换的前提</h2>
 
-<h3>4.1 瞬时功率理论</h3>
+<div class="note">
+<strong>为什么 PLL 放在这里？</strong> 第 3 节中的 Park 变换需要电网电压的相角 \(\theta\) 作为输入参数。在实际控制器中，这个 \(\theta\) 不是已知的——它必须由 PLL 从三相电网电压中<strong>实时提取</strong>。因此，按照控制器的实际设计和运行顺序，PLL 是第一个需要设计的环节：<strong>先有准确的 \(\theta\)，才能做 Park 变换；先有 Park 变换，才能做 dq 坐标系下的 PI 控制</strong>。
+</div>
+
+<h3>4.1 PLL 与 PI 控制器的关系</h3>
+
+<p><strong>PLL 和 PI 控制器是完全独立的两个子系统，各自有不同的职责，但通过关键变量 \(\theta\) 和 \(\omega\) 连接。</strong></p>
+
+<table>
+  <tr>
+    <th></th>
+    <th>PLL（锁相环）</th>
+    <th>PI 控制器（电压环 + 电流环）</th>
+  </tr>
+  <tr>
+    <td><strong>功能</strong></td>
+    <td>从电网电压中<strong>提取相角 \(\theta\)</strong></td>
+    <td>利用 \(\theta\) 进行坐标变换后，<strong>控制电流和电压</strong></td>
+  </tr>
+  <tr>
+    <td><strong>输入</strong></td>
+    <td>三相电网电压 \(v_{gABC}\)</td>
+    <td>\(V_{dc}^*,\;V_{dc},\;i_{gd},\;i_{gq},\;v_{gd},\;v_{gq}\)</td>
+  </tr>
+  <tr>
+    <td><strong>输出</strong></td>
+    <td>相角 \(\hat{\theta}\) 和角频率 \(\hat{\omega}\)</td>
+    <td>三相参考电压 \(v_{ra}^*,v_{rb}^*,v_{rc}^*\) → PWM</td>
+  </tr>
+  <tr>
+    <td><strong>控制对象</strong></td>
+    <td>让 \(\hat{\theta}\) 跟踪电网电压的真实相角</td>
+    <td>让 \(V_{dc}\) 跟踪 \(V_{dc}^*\)，让 \(i_{gq}\to 0\)</td>
+  </tr>
+  <tr>
+    <td><strong>带宽</strong></td>
+    <td>典型 20~50 Hz</td>
+    <td>电流环：数百~数千 Hz；电压环：数十 Hz</td>
+  </tr>
+  <tr>
+    <td><strong>内部结构</strong></td>
+    <td>本身也用了一个 PI 控制器（但目的不同）</td>
+    <td>级联的两个 PI 控制器</td>
+  </tr>
+</table>
+
+<p>它们的协作关系可以用下图表示：</p>
+
+<pre><code>                              PLL 输出的 θ 被所有坐标变换使用
+                                        │
+                   ┌────────────────────┼────────────────────┐
+                   ↓                    ↓                    ↓
+  v_gABC ──→ [abc→dq] ──→ v_gd,v_gq    │    v*_rd,v*_rq ──→ [dq→abc] ──→ v*_ABC → PWM
+  i_gABC ──→ [abc→dq] ──→ i_gd,i_gq    │
+                   ↑                    │
+                   │                    │
+  v_gABC ──→ [  PLL  ] ──→ θ̂, ω̂ ──────┘
+                   │
+            PLL 自身的 PI 控制器
+           （目标：使 v_gq → 0）</code></pre>
+
+<div class="note">
+<strong>关键理解</strong>：PLL 是整个控制系统的<strong>"眼睛"</strong>——它告诉系统"电网电压现在转到哪个角度了"。而 PI 控制器是系统的<strong>"大脑和手"</strong>——根据这个角度信息进行坐标变换和控制计算。<strong>没有 PLL 提供准确的 \(\theta\)，Park 变换就无法正确执行，PI 控制器就无法工作。</strong>
+</div>
+
+<h3>4.2 SRF-PLL 的工作原理</h3>
+
+<p>SRF-PLL（同步参考坐标系锁相环）的核心思想是：<strong>利用 Park 变换后的 q 轴电压分量 \(v_{gq}\) 作为误差信号</strong>。</p>
+
+<p>对三相电网电压进行 Park 变换时，使用 PLL 自己估计的角度 \(\hat{\theta}\)：</p>
+
+$$v_{gq} = V_g\sin(\theta_{\text{grid}} - \hat{\theta})$$
+
+<p>当 \(\hat{\theta}\) 尚未锁定到真实角度 \(\theta_{\text{grid}}\) 时，两者有偏差，\(v_{gq} \neq 0\)。</p>
+
+<p>当偏差较小时，\(\sin(\cdot) \approx (\cdot)\)，线性化为：</p>
+
+$$v_{gq} \approx V_g\,(\theta_{\text{grid}} - \hat{\theta})$$
+
+<p>PLL 使用一个 PI 控制器，以 \(v_{gq}\) 为误差信号，驱动 \(\hat{\theta} \to \theta_{\text{grid}}\)：</p>
+
+<div class="key-eq">
+$$\hat{\omega} = \omega_{\text{ff}} + \underbrace{K_{p,\text{PLL}}\cdot v_{gq} + K_{i,\text{PLL}}\!\int v_{gq}\,dt}_{\text{PLL 内部的 PI 控制器输出}}$$
+
+$$\hat{\theta} = \int \hat{\omega}\,dt$$
+</div>
+
+<p>其中 \(\omega_{\text{ff}}\) 是电网额定角频率的前馈值（如 \(2\pi\times 60\) rad/s），用于加速锁定。</p>
+
+<p>当 PLL 锁定后：</p>
+<ul>
+  <li>\(\hat{\theta} = \theta_{\text{grid}}\)，相角误差为零</li>
+  <li>\(v_{gq} = 0\)，这正是电网电压定向（\(v_{gq}=0\)）的实现机制</li>
+  <li>\(\hat{\omega} = \omega_{\text{grid}}\)，PLL 同时给出了电网的准确角频率</li>
+</ul>
+
+<h3>4.3 PLL 的输出在后续控制中的作用</h3>
+
+<p>PLL 输出的 \(\hat{\theta}\) 和 \(\hat{\omega}\) 在后续的所有控制环节中都要使用：</p>
+
+<table>
+  <tr><th>PLL 输出</th><th>用在哪里</th><th>具体用途</th></tr>
+  <tr>
+    <td>\(\hat{\theta}\)</td>
+    <td>abc → dq 正变换</td>
+    <td>将测量的 \(v_{gABC},\;i_{gABC}\) 变换为 \(v_{gd},v_{gq},i_{gd},i_{gq}\)</td>
+  </tr>
+  <tr>
+    <td>\(\hat{\theta}\)</td>
+    <td>dq → abc 反变换</td>
+    <td>将控制器输出 \(v_{rd}^*,v_{rq}^*\) 变回 \(v_{ra}^*,v_{rb}^*,v_{rc}^*\) 送入 PWM</td>
+  </tr>
+  <tr>
+    <td>\(\hat{\omega}\)</td>
+    <td>电流环解耦前馈</td>
+    <td>计算交叉耦合补偿项 \(\omega L\,i_{gq}\) 和 \(\omega L\,i_{gd}\)</td>
+  </tr>
+</table>
+
+<div class="note">
+<strong>设计顺序总结</strong>：整个控制器按照信号依赖关系，设计顺序为：<br>
+<strong>① PLL</strong>（提供 θ, ω）→ <strong>② 坐标变换</strong>（abc ↔ dq）→ <strong>③ 电流环 PI</strong>（内环，快）→ <strong>④ 电压环 PI</strong>（外环，慢）→ <strong>⑤ PWM 调制</strong>（执行）
+</div>
+
+<h3>4.4 PLL 内部的 PI 与电流/电压环的 PI 有什么不同？</h3>
+
+<table>
+  <tr>
+    <th></th>
+    <th>PLL 的 PI</th>
+    <th>电流环的 PI（第 6 节）</th>
+    <th>电压环的 PI（第 6 节）</th>
+  </tr>
+  <tr>
+    <td><strong>误差输入</strong></td>
+    <td>\(v_{gq}\)（相角误差的映射）</td>
+    <td>\(i_{gd}^*-i_{gd}\)（电流误差）</td>
+    <td>\(V_{dc}^*-V_{dc}\)（电压误差）</td>
+  </tr>
+  <tr>
+    <td><strong>控制输出</strong></td>
+    <td>估计角频率 \(\hat{\omega}\)</td>
+    <td>参考电压 \(v_{rd}^*\)</td>
+    <td>参考电流 \(i_{gd}^*\)</td>
+  </tr>
+  <tr>
+    <td><strong>控制目标</strong></td>
+    <td>使 \(\hat{\theta}\to\theta_{\text{grid}}\)</td>
+    <td>使 \(i_{gd}\to i_{gd}^*\)</td>
+    <td>使 \(V_{dc}\to V_{dc}^*\)</td>
+  </tr>
+  <tr>
+    <td><strong>被控对象</strong></td>
+    <td>积分器（\(\theta = \int\omega\,dt\)）</td>
+    <td>RL 电路（\(1/(Ls+R)\)）</td>
+    <td>电容积分（\(1/(Cs)\)）</td>
+  </tr>
+</table>
+
+<p>虽然三者都用 PI 结构，但它们<strong>控制的物理量完全不同，参数也完全独立</strong>，互不干扰。</p>
+
+<hr>
+
+<!-- ============================== Section 5 ============================== -->
+<h2>5. 功率分析</h2>
+
+<h3>5.1 瞬时功率理论</h3>
 
 <p>在 dq 坐标系下，三相系统的有功功率和无功功率为：</p>
 
@@ -684,7 +850,7 @@ $$Q = -\frac{3}{2}\,V_g\,i_{gq}$$
   <li>\(i_{gq}\)（q 轴电流）<strong>直接控制无功功率传输</strong></li>
 </ul>
 
-<h4>4.1.1 为什么 \(i_{gq}^*=0\) 能实现单位功率因数？</h4>
+<h4>5.1.1 为什么 \(i_{gq}^*=0\) 能实现单位功率因数？</h4>
 
 <p>首先需要澄清两个容易混淆的概念：<strong>功率因数（PF）</strong>与<strong>位移功率因数（DPF）</strong>。</p>
 
@@ -761,9 +927,9 @@ $$\text{PF} = \text{DPF} \times \text{DF} \approx 1 \times 0.999 \approx 1$$
 <strong>总结</strong>：严格来说 \(\cos\varphi_1\) 是 DPF 而非 PF。但在 PWM 整流器中，由于电流波形近似纯正弦（DF ≈ 1），PF ≈ DPF。因此设 \(i_{gq}^*=0\) 使 DPF = 1，再加上 PWM 保证 DF ≈ 1，最终实现 <strong>PF ≈ 1</strong>（单位功率因数）。
 </div>
 
-<h3>4.2 功率平衡方程</h3>
+<h3>5.2 功率平衡方程</h3>
 
-<h4>4.2.1 DC-link 能量守恒——动态方程的推导</h4>
+<h4>5.2.1 DC-link 能量守恒——动态方程的推导</h4>
 
 <p>DC-link 电容是 AC 侧和 DC 负载之间的<strong>能量缓冲</strong>。在任意时刻，流入和流出电容的功率之差，等于电容中存储能量的变化率。</p>
 
@@ -799,7 +965,7 @@ $$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = \frac{3}{2}\,V_g\,i_{gd} - \frac{V_{dc}^2
 两种写法完全等价，只是前者直接以"能量"为出发点，后者以"电压"为出发点。
 </div>
 
-<h4>4.2.2 稳态条件 \(P_{ac} = P_{dc}\) 与动态方程的关系</h4>
+<h4>5.2.2 稳态条件 \(P_{ac} = P_{dc}\) 与动态方程的关系</h4>
 
 <p>用户可能的疑问：<em>"如果 \(P_{ac} = P_{dc}\)，那么右边 \(P_{\text{in}} - P_{\text{out}} = 0\)，方程不就恒等于零了吗？这个方程还有什么意义？"</em></p>
 
@@ -840,7 +1006,7 @@ $$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = \frac{3}{2}\,V_g\,i_{gd} - \frac{V_{dc}^2
 <strong>类比</strong>：这就像一个水池——进水量（\(P_{\text{in}}\)）和出水量（\(P_{\text{out}}\)）相等时水位（\(V_{dc}\)）不变。如果突然打开更大的出水阀（负载增加），水位开始下降；控制器检测到水位下降后增大进水量（增大 \(i_{gd}\)），直到进出水再次平衡。这个动态过程正是能量守恒方程所描述的。
 </div>
 
-<h4>4.2.3 稳态功率平衡</h4>
+<h4>5.2.3 稳态功率平衡</h4>
 
 <p>当系统达到稳态时 \(\dfrac{dV_{dc}}{dt}=0\)，能量方程左边为零，得到<strong>稳态功率平衡</strong>：</p>
 
@@ -856,8 +1022,8 @@ $$i_{gd,\text{ss}} = \frac{2\,V_{dc,\text{ss}}^2}{3\,V_g\,R_L}$$
 
 <hr>
 
-<!-- ============================== Section 5 ============================== -->
-<h2>5. PI 控制器设计</h2>
+<!-- ============================== Section 6 ============================== -->
+<h2>6. PI 控制器设计</h2>
 
 <p>系统采用 <strong>级联控制结构（Cascaded Control）</strong>，包含：</p>
 <ol>
@@ -865,7 +1031,7 @@ $$i_{gd,\text{ss}} = \frac{2\,V_{dc,\text{ss}}^2}{3\,V_g\,R_L}$$
   <li><strong>内环</strong>：电网电流控制环（快环）</li>
 </ol>
 
-<h3>5.1 控制系统结构图</h3>
+<h3>6.1 控制系统结构图</h3>
 <pre><code>VdcRef ──→ [PI_v] ──→ id_ref ──→ [PI_id] ──→ vrd* ──→ [PWM] ──→ 整流器
   ↑                                  ↑
   |                                  |
@@ -876,9 +1042,9 @@ VdcF ←── DC电压反馈          igd ←── d轴电流反馈
                               |
                        igq ←── q轴电流反馈</code></pre>
 
-<h3>5.2 内环：dq 电流控制器</h3>
+<h3>6.2 内环：dq 电流控制器</h3>
 
-<h4>5.2.0 控制系统的输入、输出与可控变量分析</h4>
+<h4>6.2.0 控制系统的输入、输出与可控变量分析</h4>
 
 <p>在设计控制器之前，首先要弄清楚：<strong>什么是我们能控制的？什么是要被控制的？什么是外部扰动？</strong></p>
 
@@ -984,7 +1150,7 @@ $$v_{rk} \approx v_{rk}^* \quad (k=a,b,c)$$
   <li><strong>RL 电路</strong>：输入 = \(v_{rd}\) → 输出 = 电网电流 \(i_{gd}\)（由物理方程 \(L\,di/dt = \ldots\) 决定）</li>
 </ul>
 
-<h4>5.2.1 控制目标</h4>
+<h4>6.2.1 控制目标</h4>
 
 <p>将 dq 坐标系下的系统方程重新整理为<strong>"控制输入 → 被控输出"</strong>的因果形式。从 3.4 节的 d 轴方程出发：</p>
 
@@ -1000,7 +1166,7 @@ $$L\,\frac{di_{gq}}{dt} = \underbrace{v_{gq}}_{\text{电网电压（可测扰动
 <strong>为什么要把 \(v_{rd}\) 单独标记为控制输入？</strong> 因为在上面的方程中，右边其他项（\(v_{gd}\)、\(\omega L\,i_{gq}\)、\(R\,i_{gd}\)）要么是外部扰动，要么是状态量的被动反馈。唯一能由我们"主动选择其值"的就是 \(v_{rd}\)——我们通过 PWM 来设定它。选择不同的 \(v_{rd}\)，\(i_{gd}\) 就会有不同的动态响应。
 </div>
 
-<h4>5.2.2 PI 控制器 + 前馈解耦</h4>
+<h4>6.2.2 PI 控制器 + 前馈解耦</h4>
 
 <p>控制器设计的核心思想：<strong>把能测量到的扰动都用前馈补偿掉，剩下的纯误差用 PI 控制器处理。</strong></p>
 
@@ -1043,13 +1209,13 @@ $$\boxed{L\,\frac{di_{gd}}{dt} + Ri_{gd} = \text{PI}(i_{gd}^*-i_{gd})}$$
   <li>\(\omega L\,i_{gq},\;\omega L\,i_{gd}\)：交叉耦合解耦项</li>
 </ul>
 
-<h4>5.2.3 PI 控制器传递函数</h4>
+<h4>6.2.3 PI 控制器传递函数</h4>
 
 $$G_{PI,i}(s) = K_{pi} + \frac{K_{ii}}{s} = K_{pi}\,\frac{s + K_{ii}/K_{pi}}{s} = K_{pi}\,\frac{s + \tau_i^{-1}}{s}$$
 
 <p>其中 \(\tau_i = K_{pi}/K_{ii}\) 为积分时间常数。</p>
 
-<h4>5.2.4 解耦后的电流环传递函数</h4>
+<h4>6.2.4 解耦后的电流环传递函数</h4>
 
 <p>在完美解耦和前馈补偿下，d 轴和 q 轴的电流控制环变为相同的一阶系统。</p>
 
@@ -1061,7 +1227,7 @@ $$G_p(s) = \frac{I_{gd}(s)}{V_{rd}(s)} = \frac{1}{Ls + R}$$
 
 $$G_{OL,i}(s) = G_{PI,i}(s)\cdot G_p(s) = \frac{K_{pi}\bigl(s + K_{ii}/K_{pi}\bigr)}{s}\cdot\frac{1}{Ls + R}$$
 
-<h4>5.2.5 电流环参数整定</h4>
+<h4>6.2.5 电流环参数整定</h4>
 
 <p>采用<strong>零极点对消法</strong>（Pole-Zero Cancellation）——令 PI 控制器的零点对消被控对象的极点：</p>
 
@@ -1093,11 +1259,11 @@ $$K_{ii} = R \cdot \omega_{bw,i}$$
 <strong>典型设计</strong>：电流环带宽选取为开关频率的 1/10 至 1/5。
 </div>
 
-<h3>5.3 外环：DC-Link 电压控制器</h3>
+<h3>6.3 外环：DC-Link 电压控制器</h3>
 
-<h4>5.3.1 DC-Link 动态模型与小信号线性化</h4>
+<h4>6.3.1 DC-Link 动态模型与小信号线性化</h4>
 
-<p>DC-link 电容上的能量平衡（来自 4.2 节的推导）：</p>
+<p>DC-link 电容上的能量平衡（来自 5.2 节的推导）：</p>
 
 $$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = \frac{3}{2}\,V_g\,i_{gd} - P_{\text{load}}$$
 
@@ -1196,7 +1362,7 @@ $$G_v(s) = \frac{\tilde{V}_{dc}(s)}{\tilde{I}_{gd}(s)} = \frac{3\,V_g}{2\,C_{dc}
 
 <p>这是一个<strong>纯积分环节</strong>（\(1/s\) 型），物理意义很直观：增加 d 轴电流 \(\tilde{i}_{gd}\)，意味着从 AC 侧多注入功率，多余功率充入电容，使 \(V_{dc}\) 持续上升——电压是电流的积分。</p>
 
-<h4>5.3.2 电压环 PI 控制器</h4>
+<h4>6.3.2 电压环 PI 控制器</h4>
 
 $$G_{PI,v}(s) = K_{pv} + \frac{K_{iv}}{s}$$
 
@@ -1206,7 +1372,7 @@ $$G_{PI,v}(s) = K_{pv} + \frac{K_{iv}}{s}$$
 $$i_{gd}^* = \left(K_{pv} + \frac{K_{iv}}{s}\right)\!\bigl(V_{dc}^* - V_{dc}\bigr)$$
 </div>
 
-<h4>5.3.3 电压环开环传递函数</h4>
+<h4>6.3.3 电压环开环传递函数</h4>
 
 <p>考虑内环闭环传递函数 \(G_{CL,i}(s)\)：</p>
 
@@ -1214,7 +1380,7 @@ $$G_{OL,v}(s) = G_{PI,v}(s)\cdot G_{CL,i}(s)\cdot G_v(s)$$
 
 $$= \left(K_{pv} + \frac{K_{iv}}{s}\right)\cdot\frac{1}{\tau_{ci}\,s+1}\cdot\frac{3\,V_g}{2\,C_{dc}\,V_{dc0}\cdot s}$$
 
-<h4>5.3.4 电压环参数整定</h4>
+<h4>6.3.4 电压环参数整定</h4>
 
 <p>若内环足够快（\(\tau_{ci}\ll\tau_{cv}\)），可近似 \(G_{CL,i}(s)\approx 1\)：</p>
 
@@ -1346,7 +1512,7 @@ $$G_{CL,v}(s) = \frac{1}{2\,\tau_{ci}^2\,s^2 + 2\,\tau_{ci}\,s + 1}$$
 <strong>总结</strong>：模量最优法的本质是——对于"积分器 + 小惯性"型的被控对象，通过选择 PI 参数使闭环成为阻尼比 \(\zeta = 1/\sqrt{2}\) 的标准二阶系统，从而在<strong>快速响应、小超调（4.3%）、宽带宽</strong>之间达到最佳平衡。这就是为什么它适合电压环的设计。
 </div>
 
-<h3>5.4 带宽分离原则</h3>
+<h3>6.4 带宽分离原则</h3>
 
 <div class="key-eq">
 $$\omega_{bw,v} \;\ll\; \omega_{bw,i} \;\ll\; \omega_{sw}$$
@@ -1357,142 +1523,6 @@ $$\omega_{bw,v} \;\ll\; \omega_{bw,i} \;\ll\; \omega_{sw}$$
   <li>\(\omega_{bw,i}\)：电流环带宽（典型：开关频率的 1/10 ~ 1/5）</li>
   <li>\(\omega_{bw,v}\)：电压环带宽（典型：电流环带宽的 1/5 ~ 1/10）</li>
 </ul>
-
-<hr>
-
-<!-- ============================== Section 6 ============================== -->
-<h2>6. 锁相环 (PLL)</h2>
-
-<h3>6.1 PLL 与 PI 控制器的关系——它们是什么关系？</h3>
-
-<p>用户可能的疑问：<em>"PLL 和 PI 控制器是分开的吗？谁先谁后？它们怎么配合？"</em></p>
-
-<p><strong>PLL 和 PI 控制器是完全独立的两个子系统，各自有不同的职责，但通过一个关键变量 \(\theta\) 连接。</strong></p>
-
-<table>
-  <tr>
-    <th></th>
-    <th>PLL（锁相环）</th>
-    <th>PI 控制器（电压环 + 电流环）</th>
-  </tr>
-  <tr>
-    <td><strong>功能</strong></td>
-    <td>从电网电压中<strong>提取相角 \(\theta\)</strong></td>
-    <td>利用 \(\theta\) 进行坐标变换后，<strong>控制电流和电压</strong></td>
-  </tr>
-  <tr>
-    <td><strong>输入</strong></td>
-    <td>三相电网电压 \(v_{gABC}\)</td>
-    <td>\(V_{dc}^*,\;V_{dc},\;i_{gd},\;i_{gq},\;v_{gd},\;v_{gq}\)</td>
-  </tr>
-  <tr>
-    <td><strong>输出</strong></td>
-    <td>相角 \(\hat{\theta}\) 和角频率 \(\hat{\omega}\)</td>
-    <td>三相参考电压 \(v_{ra}^*,v_{rb}^*,v_{rc}^*\) → PWM</td>
-  </tr>
-  <tr>
-    <td><strong>控制对象</strong></td>
-    <td>让 \(\hat{\theta}\) 跟踪电网电压的真实相角</td>
-    <td>让 \(V_{dc}\) 跟踪 \(V_{dc}^*\)，让 \(i_{gq}\to 0\)</td>
-  </tr>
-  <tr>
-    <td><strong>带宽</strong></td>
-    <td>典型 20~50 Hz</td>
-    <td>电流环：数百~数千 Hz；电压环：数十 Hz</td>
-  </tr>
-  <tr>
-    <td><strong>内部结构</strong></td>
-    <td>本身也用了一个 PI 控制器（但目的不同）</td>
-    <td>级联的两个 PI 控制器</td>
-  </tr>
-</table>
-
-<p>它们的协作关系可以用下图表示：</p>
-
-<pre><code>                              PLL 输出的 θ 被所有坐标变换使用
-                                        │
-                   ┌────────────────────┼────────────────────┐
-                   ↓                    ↓                    ↓
-  v_gABC ──→ [abc→dq] ──→ v_gd,v_gq    │    v*_rd,v*_rq ──→ [dq→abc] ──→ v*_ABC → PWM
-  i_gABC ──→ [abc→dq] ──→ i_gd,i_gq    │
-                   ↑                    │
-                   │                    │
-  v_gABC ──→ [  PLL  ] ──→ θ̂, ω̂ ──────┘
-                   │
-            PLL 自身的 PI 控制器
-           （目标：使 v_gq → 0）</code></pre>
-
-<div class="note">
-<strong>关键理解</strong>：PLL 是整个控制系统的<strong>"眼睛"</strong>——它告诉系统"电网电压现在转到哪个角度了"。而 PI 控制器是系统的<strong>"大脑和手"</strong>——根据这个角度信息进行坐标变换和控制计算。<strong>没有 PLL 提供准确的 \(\theta\)，Park 变换就无法正确执行，PI 控制器就无法工作。</strong>
-</div>
-
-<h3>6.2 SRF-PLL 的工作原理</h3>
-
-<p>SRF-PLL（同步参考坐标系锁相环）的核心思想是：<strong>利用 Park 变换后的 q 轴电压分量 \(v_{gq}\) 作为误差信号</strong>。</p>
-
-<p>对三相电网电压进行 Park 变换时，使用 PLL 自己估计的角度 \(\hat{\theta}\)：</p>
-
-$$v_{gq} = V_g\sin(\theta_{\text{grid}} - \hat{\theta})$$
-
-<p>当 \(\hat{\theta}\) 尚未锁定到真实角度 \(\theta_{\text{grid}}\) 时，两者有偏差，\(v_{gq} \neq 0\)。</p>
-
-<p>当偏差较小时，\(\sin(\cdot) \approx (\cdot)\)，线性化为：</p>
-
-$$v_{gq} \approx V_g\,(\theta_{\text{grid}} - \hat{\theta})$$
-
-<p>PLL 使用一个 PI 控制器，以 \(v_{gq}\) 为误差信号，驱动 \(\hat{\theta} \to \theta_{\text{grid}}\)：</p>
-
-<div class="key-eq">
-$$\hat{\omega} = \omega_{\text{ff}} + \underbrace{K_{p,\text{PLL}}\cdot v_{gq} + K_{i,\text{PLL}}\!\int v_{gq}\,dt}_{\text{PLL 内部的 PI 控制器输出}}$$
-
-$$\hat{\theta} = \int \hat{\omega}\,dt$$
-</div>
-
-<p>其中 \(\omega_{\text{ff}}\) 是电网额定角频率的前馈值（如 \(2\pi\times 60\) rad/s），用于加速锁定。</p>
-
-<p>当 PLL 锁定后：</p>
-<ul>
-  <li>\(\hat{\theta} = \theta_{\text{grid}}\)，相角误差为零</li>
-  <li>\(v_{gq} = 0\)，这正是电网电压定向（\(v_{gq}=0\)）的实现机制</li>
-  <li>\(\hat{\omega} = \omega_{\text{grid}}\)，PLL 同时给出了电网的准确角频率</li>
-</ul>
-
-<h3>6.3 PLL 内部的 PI 与电流/电压环的 PI 有什么不同？</h3>
-
-<table>
-  <tr>
-    <th></th>
-    <th>PLL 的 PI</th>
-    <th>电流环的 PI</th>
-    <th>电压环的 PI</th>
-  </tr>
-  <tr>
-    <td><strong>误差输入</strong></td>
-    <td>\(v_{gq}\)（相角误差的映射）</td>
-    <td>\(i_{gd}^*-i_{gd}\)（电流误差）</td>
-    <td>\(V_{dc}^*-V_{dc}\)（电压误差）</td>
-  </tr>
-  <tr>
-    <td><strong>控制输出</strong></td>
-    <td>估计角频率 \(\hat{\omega}\)</td>
-    <td>参考电压 \(v_{rd}^*\)</td>
-    <td>参考电流 \(i_{gd}^*\)</td>
-  </tr>
-  <tr>
-    <td><strong>控制目标</strong></td>
-    <td>使 \(\hat{\theta}\to\theta_{\text{grid}}\)</td>
-    <td>使 \(i_{gd}\to i_{gd}^*\)</td>
-    <td>使 \(V_{dc}\to V_{dc}^*\)</td>
-  </tr>
-  <tr>
-    <td><strong>被控对象</strong></td>
-    <td>积分器（\(\theta = \int\omega\,dt\)）</td>
-    <td>RL 电路（\(1/(Ls+R)\)）</td>
-    <td>电容积分（\(1/(Cs)\)）</td>
-  </tr>
-</table>
-
-<p>虽然三者都用 PI 结构，但它们<strong>控制的物理量完全不同，参数也完全独立</strong>，互不干扰。</p>
 
 <hr>
 
@@ -1552,7 +1582,7 @@ $$G_{\text{filter}}(s) = \frac{1}{\tau_f\,s + 1}$$
   </li>
   <li><strong>DC 电压滤波</strong>：\(V_{dc} \xrightarrow{\text{LPF}} V_{dcF}\)</li>
   <li><strong>外环 PI</strong>：\(e_v = V_{dc}^* - V_{dcF} \xrightarrow{PI_v} i_{gd}^*\)</li>
-  <li><strong>设定 q 轴电流参考</strong>：\(i_{gq}^*=0\)（单位功率因数，参见 4.1.1 节）</li>
+  <li><strong>设定 q 轴电流参考</strong>：\(i_{gq}^*=0\)（单位功率因数，参见 5.1.1 节）</li>
   <li><strong>内环 PI + 解耦</strong>（\(L\) 即变压器漏感 \(L_{eq}\)）：
     <ul>
       <li>\(v_{rd}^* = v_{gd} + \omega L\,i_{gq} - \text{PI}_d(i_{gd}^*-i_{gd})\)</li>
