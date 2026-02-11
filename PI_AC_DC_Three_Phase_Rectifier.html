@@ -1073,15 +1073,131 @@ $$= \left(K_{pv} + \frac{K_{iv}}{s}\right)\cdot\frac{1}{\tau_{ci}\,s+1}\cdot\fra
 
 $$G_{OL,v}(s) \approx \frac{(K_{pv}\,s + K_{iv})\cdot 3\,V_g}{2\,C_{dc}\,V_{dc0}\cdot s^2}$$
 
-<p>采用<strong>模量最优法</strong>（Modulus Optimum）整定结果：</p>
+<p>电流环中我们用了"零极点对消法"来整定参数（因为被控对象只有一个极点，恰好可以对消）。但电压环的被控对象是纯积分器 \(1/s\)，<strong>没有可以对消的极点</strong>，因此需要另一种方法——<strong>模量最优法（Modulus Optimum）</strong>。</p>
 
-<div class="boxed-eq">
-$$K_{pv} = \frac{2\,C_{dc}\,V_{dc0}\,\omega_{bw,v}}{3\,V_g}$$
+<h4>什么是模量最优法？</h4>
 
-$$K_{iv} = \frac{K_{pv}}{\tau_{iv}}$$
+<p><strong>模量最优法（Modulus Optimum, MO）</strong>又称"幅值最优法"或"Betragsoptimum"（德语），是一种经典的 PI/PID 参数整定方法，核心思想是：</p>
+
+<div class="key-eq">
+<strong>设计目标</strong>：使闭环传递函数的幅频特性在尽可能宽的频率范围内接近 1（即"平坦"），也就是：
+
+$$\bigl|G_{CL}(j\omega)\bigr| \approx 1, \qquad \text{对尽可能大的 } \omega \text{ 范围成立}$$
 </div>
 
-<p>其中 \(\omega_{bw,v}\) 为电压环期望带宽，通常选取为电流环带宽的 1/5 至 1/10。</p>
+<p>物理意义：输入什么，输出就是什么（幅值不衰减也不放大），即<strong>完美跟踪</strong>。</p>
+
+<h4>为什么叫"模量"最优？</h4>
+
+<p>"模量"就是"幅值"（Modulus = 复数的模 = 幅频响应的值）。该方法使闭环频率响应的模（幅值）在带宽内尽可能等于 1，故名"模量最优"。</p>
+
+<h4>模量最优法的推导过程</h4>
+
+<p><strong>第一步：写出开环传递函数</strong></p>
+
+<p>电压环开环传递函数（近似内环为 1，但保留内环的小时间常数 \(\tau_{ci}\)）：</p>
+
+$$G_{OL,v}(s) = \underbrace{\left(K_{pv} + \frac{K_{iv}}{s}\right)}_{\text{PI 控制器}} \cdot \underbrace{\frac{1}{\tau_{ci}\,s + 1}}_{\text{内环闭环（小惯性）}} \cdot \underbrace{\frac{K_v}{s}}_{\text{电容积分}}$$
+
+<p>其中 \(K_v = \dfrac{3\,V_g}{2\,C_{dc}\,V_{dc0}}\) 为电容积分环节的增益。</p>
+
+<p>将 PI 写成标准形式 \(K_{pv}\cdot\dfrac{\tau_{iv}\,s+1}{\tau_{iv}\,s}\)，其中 \(\tau_{iv} = K_{pv}/K_{iv}\) 为积分时间常数：</p>
+
+$$G_{OL,v}(s) = \frac{K_{pv}\,K_v\,(\tau_{iv}\,s + 1)}{\tau_{iv}\,s^2\,(\tau_{ci}\,s + 1)}$$
+
+<p><strong>第二步：模量最优的关键设计选择</strong></p>
+
+<p>模量最优法的核心步骤是：<strong>令 PI 控制器的零点对消系统中最大的时间常数</strong>。</p>
+
+<p>但这里被控对象是纯积分器（没有极点可以对消），系统中唯一的时间常数是内环的小惯性 \(\tau_{ci}\)。模量最优法的做法是<strong>不对消</strong>这个小时间常数，而是令：</p>
+
+<div class="boxed-eq">
+$$\tau_{iv} = a^2 \cdot \tau_{ci}$$
+</div>
+
+<p>其中 \(a\) 是一个设计参数。然后选择 \(K_{pv}\) 使得闭环带宽最优化。</p>
+
+<p><strong>第三步：推导闭环传递函数</strong></p>
+
+<p>闭环传递函数为：</p>
+
+$$G_{CL,v}(s) = \frac{G_{OL,v}(s)}{1 + G_{OL,v}(s)}$$
+
+<p>模量最优法要求 \(\bigl|G_{CL,v}(j\omega)\bigr|^2\) 在 \(\omega = 0\) 附近尽可能平坦。这等价于对 \(\bigl|G_{CL,v}(j\omega)\bigr|^2\) 关于 \(\omega^2\) 展开后，使尽可能多的低次项系数为零。</p>
+
+<p><strong>第四步：标准模量最优结果（\(a = 1\)）</strong></p>
+
+<p>取 \(a = 1\)（即 \(\tau_{iv} = \tau_{ci}\)），可以推导出使闭环最平坦的条件为：</p>
+
+<div class="boxed-eq">
+$$K_{pv}\,K_v = \frac{1}{2\,\tau_{ci}}$$
+</div>
+
+<p>代入 \(K_v = \dfrac{3\,V_g}{2\,C_{dc}\,V_{dc0}}\)，解出：</p>
+
+<div class="key-eq">
+$$K_{pv} = \frac{1}{2\,\tau_{ci}\,K_v} = \frac{2\,C_{dc}\,V_{dc0}}{2\,\tau_{ci}\cdot 3\,V_g} = \frac{C_{dc}\,V_{dc0}}{3\,V_g\,\tau_{ci}}$$
+
+$$K_{iv} = \frac{K_{pv}}{\tau_{iv}} = \frac{K_{pv}}{\tau_{ci}} = \frac{C_{dc}\,V_{dc0}}{3\,V_g\,\tau_{ci}^2}$$
+</div>
+
+<p>其中 \(\tau_{ci} = L/K_{pi}\) 是电流环的闭环时间常数。</p>
+
+<p><strong>第五步：模量最优闭环的特性</strong></p>
+
+<p>在标准模量最优整定下，闭环传递函数变为经典的<strong>二阶标准形式</strong>：</p>
+
+$$G_{CL,v}(s) = \frac{1}{2\,\tau_{ci}^2\,s^2 + 2\,\tau_{ci}\,s + 1}$$
+
+<p>对比标准二阶系统 \(\dfrac{1}{s^2/\omega_n^2 + 2\zeta\,s/\omega_n + 1}\)：</p>
+
+<ul>
+  <li>自然频率：\(\omega_n = \dfrac{1}{\sqrt{2}\,\tau_{ci}}\)</li>
+  <li>阻尼比：\(\zeta = \dfrac{1}{\sqrt{2}} \approx 0.707\)</li>
+</ul>
+
+<p>这个阻尼比 \(\zeta = 0.707\) 正好是<strong>临界最优阻尼</strong>——在快速响应和小超调之间取得最佳平衡。</p>
+
+<h4>模量最优法的闭环性能指标</h4>
+
+<table>
+  <tr><th>性能指标</th><th>模量最优值</th></tr>
+  <tr><td>阻尼比 \(\zeta\)</td><td>\(1/\sqrt{2} \approx 0.707\)</td></tr>
+  <tr><td>阶跃响应超调量</td><td>4.3%</td></tr>
+  <tr><td>带宽 \(\omega_{bw}\)</td><td>\(\approx 1/\tau_{ci}\)</td></tr>
+  <tr><td>相位裕度 PM</td><td>\(65.5°\)</td></tr>
+  <tr><td>增益裕度 GM</td><td>\(\infty\)（无穿越）</td></tr>
+  <tr><td>闭环幅频特性</td><td>在带宽内平坦（\(\approx 1\)），无谐振峰</td></tr>
+</table>
+
+<h4>与其他整定方法的对比</h4>
+
+<table>
+  <tr>
+    <th>方法</th>
+    <th>适用场景</th>
+    <th>本系统中的应用</th>
+  </tr>
+  <tr>
+    <td><strong>零极点对消法</strong><br>(Pole-Zero Cancellation)</td>
+    <td>被控对象有明确的极点可以对消<br>（如 RL 电路的极点 \(-R/L\)）</td>
+    <td><strong>电流环</strong>：PI 零点对消 RL 的极点 \(\to\) 一阶闭环</td>
+  </tr>
+  <tr>
+    <td><strong>模量最优法</strong><br>(Modulus Optimum)</td>
+    <td>被控对象是纯积分器 + 小惯性环节<br>（没有有意义的极点可对消）</td>
+    <td><strong>电压环</strong>：被控对象 \(K_v/s\) + 内环惯性 \(1/(\tau_{ci}s+1)\) \(\to\) 二阶闭环，\(\zeta = 0.707\)</td>
+  </tr>
+  <tr>
+    <td><strong>对称最优法</strong><br>(Symmetric Optimum)</td>
+    <td>系统中有更大的延迟或积分环节<br>需要更大的相位裕度</td>
+    <td>可作为替代方案（PM ≈ 45°，超调更大但抗扰动更快）</td>
+  </tr>
+</table>
+
+<div class="note">
+<strong>总结</strong>：模量最优法的本质是——对于"积分器 + 小惯性"型的被控对象，通过选择 PI 参数使闭环成为阻尼比 \(\zeta = 1/\sqrt{2}\) 的标准二阶系统，从而在<strong>快速响应、小超调（4.3%）、宽带宽</strong>之间达到最佳平衡。这就是为什么它适合电压环的设计。
+</div>
 
 <h3>5.4 带宽分离原则</h3>
 
