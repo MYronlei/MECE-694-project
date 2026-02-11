@@ -123,26 +123,148 @@ $$\begin{bmatrix} f_\alpha \\ f_\beta \end{bmatrix} = \frac{2}{3} \begin{bmatrix
 
 ### 3.3 Park 变换 (αβ → dq)
 
-然后进行 Park 变换，将静止 αβ 坐标系变换到与电网电压同步旋转的 dq 坐标系：
+然后进行 Park 变换，将静止 αβ 坐标系变换到与电网电压同步旋转的 dq 坐标系。
 
-$$\begin{bmatrix} f_d \\ f_q \end{bmatrix} = \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix} \begin{bmatrix} f_\alpha \\ f_\beta \end{bmatrix}$$
+定义 Park 变换矩阵及其逆矩阵：
+
+$$\mathbf{T}_P(\theta) = \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix}, \qquad \mathbf{T}_P^{-1}(\theta) = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}$$
+
+正变换（αβ → dq）：
+
+$$\begin{bmatrix} f_d \\ f_q \end{bmatrix} = \mathbf{T}_P(\theta) \begin{bmatrix} f_\alpha \\ f_\beta \end{bmatrix}$$
+
+逆变换（dq → αβ）：
+
+$$\begin{bmatrix} f_\alpha \\ f_\beta \end{bmatrix} = \mathbf{T}_P^{-1}(\theta) \begin{bmatrix} f_d \\ f_q \end{bmatrix}$$
 
 其中 \( \theta = \omega t \) 是电网电压矢量的角度，通过 **锁相环 (PLL)** 获取。
 
 **Park 变换的核心优势**：在 dq 坐标系中，稳态下的三相正弦量变为直流量，使得 PI 控制器可以实现零稳态误差跟踪。
 
-### 3.4 dq 坐标系下的系统方程
+### 3.4 从 αβ 方程到 dq 方程的完整推导
 
-在 dq 同步旋转坐标系中，三相电路方程变为：
+这是整个建模过程中**最关键也最容易产生困惑**的一步。下面逐步展示交叉耦合项 \( \omega L i_{gq} \) 和 \( \omega L i_{gd} \) 是如何出现的。
 
-$$\boxed{v_{gd} = R \cdot i_{gd} + L \frac{di_{gd}}{dt} - \omega L \cdot i_{gq} + v_{rd}}$$
+#### 第一步：将 abc 电路方程变换到 αβ 坐标系
 
-$$\boxed{v_{gq} = R \cdot i_{gq} + L \frac{di_{gq}}{dt} + \omega L \cdot i_{gd} + v_{rq}}$$
+abc 坐标系下的矩阵方程为：
 
-**关键特征**：
-- 出现了 **交叉耦合项**：\( -\omega L \cdot i_{gq} \) 和 \( +\omega L \cdot i_{gd} \)
-- d 轴和 q 轴的电流动态相互耦合
-- 需要**前馈解耦**来实现独立控制
+$$\mathbf{v}_{g,abc} = R\,\mathbf{i}_{g,abc} + L\,\frac{d\,\mathbf{i}_{g,abc}}{dt} + \mathbf{v}_{r,abc}$$
+
+对等式两边同时左乘 Clark 变换矩阵 \( \mathbf{T}_C \)，由于 \( \mathbf{T}_C \) 是常数矩阵，可以与微分运算交换顺序：
+
+$$\underbrace{\mathbf{T}_C\,\mathbf{v}_{g,abc}}_{\mathbf{v}_{g,\alpha\beta}} = R\,\underbrace{\mathbf{T}_C\,\mathbf{i}_{g,abc}}_{\mathbf{i}_{g,\alpha\beta}} + L\,\frac{d}{dt}\underbrace{(\mathbf{T}_C\,\mathbf{i}_{g,abc})}_{\mathbf{i}_{g,\alpha\beta}} + \underbrace{\mathbf{T}_C\,\mathbf{v}_{r,abc}}_{\mathbf{v}_{r,\alpha\beta}}$$
+
+得到 αβ 坐标系下的电路方程：
+
+$$v_{g\alpha} = R\,i_{g\alpha} + L\,\frac{di_{g\alpha}}{dt} + v_{r\alpha}$$
+
+$$v_{g\beta} = R\,i_{g\beta} + L\,\frac{di_{g\beta}}{dt} + v_{r\beta}$$
+
+> **注意**：Clark 变换矩阵 \( \mathbf{T}_C \) 是常数矩阵（不随时间变化），所以变换后方程的结构与 abc 完全一致——仅仅是把三个方程减少到了两个，**没有产生任何额外的耦合项**。
+
+#### 第二步：将 αβ 方程变换到 dq 坐标系（关键步骤）
+
+将 αβ 方程写成矢量形式：
+
+$$\mathbf{v}_{g,\alpha\beta} = R\,\mathbf{i}_{g,\alpha\beta} + L\,\frac{d\,\mathbf{i}_{g,\alpha\beta}}{dt} + \mathbf{v}_{r,\alpha\beta}$$
+
+利用逆 Park 变换将 dq 量表示为 αβ 量：
+
+$$\mathbf{i}_{g,\alpha\beta} = \mathbf{T}_P^{-1}(\theta)\,\mathbf{i}_{g,dq}$$
+
+代入 αβ 方程：
+
+$$\mathbf{T}_P^{-1}\,\mathbf{v}_{g,dq} = R\,\mathbf{T}_P^{-1}\,\mathbf{i}_{g,dq} + L\,\frac{d}{dt}\!\left[\mathbf{T}_P^{-1}\,\mathbf{i}_{g,dq}\right] + \mathbf{T}_P^{-1}\,\mathbf{v}_{r,dq}$$
+
+#### 第三步：展开微分项（交叉耦合的来源）
+
+**这是最关键的一步。** 由于 \( \mathbf{T}_P^{-1}(\theta) \) 是时间的函数（\( \theta = \omega t \)），对乘积求导必须使用**乘积法则（Product Rule）**：
+
+$$\frac{d}{dt}\!\left[\mathbf{T}_P^{-1}\,\mathbf{i}_{g,dq}\right] = \frac{d\mathbf{T}_P^{-1}}{dt}\,\mathbf{i}_{g,dq} + \mathbf{T}_P^{-1}\,\frac{d\,\mathbf{i}_{g,dq}}{dt}$$
+
+先计算 \( \frac{d\mathbf{T}_P^{-1}}{dt} \)。回顾：
+
+$$\mathbf{T}_P^{-1}(\theta) = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}$$
+
+对每个元素逐一求导，由于 \( \theta = \omega t \)，利用链式法则 \( \frac{d\theta}{dt} = \omega \)：
+
+$$\frac{d}{dt}\cos\theta = -\omega\sin\theta, \quad \frac{d}{dt}\sin\theta = \omega\cos\theta, \quad \frac{d}{dt}(-\sin\theta) = -\omega\cos\theta$$
+
+因此：
+
+$$\frac{d\mathbf{T}_P^{-1}}{dt} = \omega\begin{bmatrix} -\sin\theta & -\cos\theta \\ \cos\theta & -\sin\theta \end{bmatrix}$$
+
+观察这个结果，可以进一步分解为：
+
+$$\frac{d\mathbf{T}_P^{-1}}{dt} = \mathbf{T}_P^{-1} \cdot \omega\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}$$
+
+验证：
+
+$$\mathbf{T}_P^{-1} \cdot \omega\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix} = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix} \begin{bmatrix} 0 & -\omega \\ \omega & 0 \end{bmatrix} = \begin{bmatrix} -\omega\sin\theta & -\omega\cos\theta \\ \omega\cos\theta & -\omega\sin\theta \end{bmatrix} \;\checkmark$$
+
+定义旋转角速度矩阵：
+
+$$\mathbf{J}\omega = \omega\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}$$
+
+于是微分项可以简洁地写为：
+
+$$\frac{d\mathbf{T}_P^{-1}}{dt} = \mathbf{T}_P^{-1} \cdot \mathbf{J}\omega$$
+
+#### 第四步：代入并化简
+
+把展开后的微分项代入原方程：
+
+$$\mathbf{T}_P^{-1}\,\mathbf{v}_{g,dq} = R\,\mathbf{T}_P^{-1}\,\mathbf{i}_{g,dq} + L\!\left[\mathbf{T}_P^{-1}\cdot\mathbf{J}\omega\,\mathbf{i}_{g,dq} + \mathbf{T}_P^{-1}\,\frac{d\,\mathbf{i}_{g,dq}}{dt}\right] + \mathbf{T}_P^{-1}\,\mathbf{v}_{r,dq}$$
+
+等式两边每一项都有公因子 \( \mathbf{T}_P^{-1} \)，**左乘 \( \mathbf{T}_P \) 消去**（因为 \( \mathbf{T}_P\,\mathbf{T}_P^{-1} = \mathbf{I} \)）：
+
+$$\mathbf{v}_{g,dq} = R\,\mathbf{i}_{g,dq} + L\,\frac{d\,\mathbf{i}_{g,dq}}{dt} + L\,\mathbf{J}\omega\,\mathbf{i}_{g,dq} + \mathbf{v}_{r,dq}$$
+
+#### 第五步：展开为标量方程
+
+将矩阵方程展开，注意 \( \mathbf{J}\omega \) 的具体形式：
+
+$$L\,\mathbf{J}\omega\,\mathbf{i}_{g,dq} = L\omega\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}\begin{bmatrix} i_{gd} \\ i_{gq} \end{bmatrix} = \begin{bmatrix} -\omega L\,i_{gq} \\ +\omega L\,i_{gd} \end{bmatrix}$$
+
+代入矢量方程的各分量：
+
+**d 轴方程**（第 1 行）：
+
+$$v_{gd} = R\,i_{gd} + L\,\frac{di_{gd}}{dt} - \omega L\,i_{gq} + v_{rd}$$
+
+**q 轴方程**（第 2 行）：
+
+$$v_{gq} = R\,i_{gq} + L\,\frac{di_{gq}}{dt} + \omega L\,i_{gd} + v_{rq}$$
+
+#### 第六步：总结 —— dq 坐标系最终方程
+
+$$\boxed{v_{gd} = R\,i_{gd} + L\,\frac{di_{gd}}{dt} - \omega L\,i_{gq} + v_{rd}}$$
+
+$$\boxed{v_{gq} = R\,i_{gq} + L\,\frac{di_{gq}}{dt} + \omega L\,i_{gd} + v_{rq}}$$
+
+#### 交叉耦合项的物理解释
+
+**为什么会出现 \( -\omega L\,i_{gq} \) 和 \( +\omega L\,i_{gd} \)？**
+
+这些项**不是**来自物理电路本身——在实际的三相电线上并不存在从 d 轴到 q 轴的"物理连接"。它们完全是**数学坐标变换的产物**：
+
+- dq 坐标系以角速度 \( \omega \) 旋转
+- 在旋转坐标系中观测一个静止的矢量，会看到它以 \( -\omega \) 反向旋转
+- 类似于科里奥利力——在旋转参考系中观察运动物体时出现的"虚拟力"
+- 数学上，它来自对 \( \mathbf{T}_P^{-1}(\theta) \) 的时间导数：\( \frac{d\mathbf{T}_P^{-1}}{dt} \) 产生了 \( \omega\mathbf{J} \) 项
+
+> **类比理解**：想象你站在旋转的圆盘上向前直线扔球。从你（旋转坐标系）的视角看，球的轨迹是弯曲的——好像有一个横向的力在"耦合"前后方向和左右方向。这个"力"就是科里奥利效应。dq 方程中的交叉耦合项正是电气领域的"科里奥利效应"。
+
+#### 对比：abc / αβ / dq 三种坐标系下的方程
+
+| 坐标系 | 方程形式 | 交叉耦合 | 稳态量 |
+|--------|---------|---------|-------|
+| abc (三相静止) | \( v_{gk} = Ri_{gk} + L\frac{di_{gk}}{dt} + v_{rk} \) | 无 | 正弦交变量 |
+| αβ (两相静止) | \( v_{g\alpha} = Ri_{g\alpha} + L\frac{di_{g\alpha}}{dt} + v_{r\alpha} \) | 无 | 正弦交变量 |
+| dq (两相旋转) | \( v_{gd} = Ri_{gd} + L\frac{di_{gd}}{dt} - \omega Li_{gq} + v_{rd} \) | **有**（ωL 项） | **直流常量** |
+
+**关键取舍**：dq 变换用"引入交叉耦合项"的代价，换来了"稳态量变为直流"的巨大优势。而交叉耦合项可以通过控制器中的**前馈解耦**来消除（见第 5 节）。
 
 ### 3.5 dq 坐标系中电网电压的对齐
 
