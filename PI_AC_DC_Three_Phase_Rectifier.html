@@ -539,22 +539,138 @@ $$Q = -\frac{3}{2}\,V_g\,i_{gq}$$
 <ul>
   <li>\(i_{gd}\)（d 轴电流）<strong>直接控制有功功率传输</strong></li>
   <li>\(i_{gq}\)（q 轴电流）<strong>直接控制无功功率传输</strong></li>
-  <li>设 \(i_{gq}^*=0\) 即可实现<strong>单位功率因数运行</strong></li>
 </ul>
+
+<h4>4.1.1 为什么 \(i_{gq}^*=0\) 能实现单位功率因数？</h4>
+
+<p>先回顾<strong>功率因数</strong>的定义。对于正弦电路：</p>
+
+$$\text{PF} = \cos\varphi$$
+
+<p>其中 \(\varphi\) 是电压与电流之间的相位差。单位功率因数意味着 \(\cos\varphi = 1\)，即 \(\varphi = 0\)，电压与电流<strong>完全同相</strong>。</p>
+
+<p>功率因数也可以用有功/无功功率表示：</p>
+
+$$\text{PF} = \cos\varphi = \frac{P}{\sqrt{P^2 + Q^2}} = \frac{P}{S}$$
+
+<p>其中 \(S = \sqrt{P^2+Q^2}\) 为视在功率。因此 \(\text{PF}=1\) 等价于 \(Q=0\)。</p>
+
+<p>现在来看 dq 坐标系中的推导。在电网电压定向下（\(v_{gq}=0\)）：</p>
+
+$$Q = -\frac{3}{2}\,V_g\,i_{gq}$$
+
+<p>由于 \(V_g \neq 0\)（电网电压不为零），<strong>当且仅当 \(i_{gq}=0\) 时，\(Q=0\)</strong>。</p>
+
+<p>从相量的角度可以更直观地理解。在 dq 坐标系中，d 轴已对齐到电网电压方向：</p>
+
+<ul>
+  <li>电网电压矢量 \(\vec{V}_g\) <strong>仅有 d 轴分量</strong>：\(\vec{V}_g = (V_g,\;0)\)</li>
+  <li>电网电流矢量 \(\vec{I}_g = (i_{gd},\;i_{gq})\)</li>
+  <li>两者之间的夹角 \(\varphi = \arctan\!\left(\dfrac{i_{gq}}{i_{gd}}\right)\)</li>
+</ul>
+
+$$\text{当 } i_{gq}=0 \text{ 时：} \quad \varphi = \arctan\!\left(\frac{0}{i_{gd}}\right) = 0 \quad \Longrightarrow \quad \cos\varphi = 1$$
+
+<div class="note">
+<strong>总结</strong>：电流矢量 \(\vec{I}_g\) 的 q 轴分量 \(i_{gq}\) 就是电流相对于电压的"偏转量"。设 \(i_{gq}^*=0\) 意味着<strong>让电流方向完全对准电压方向</strong>，电压与电流同相，无功功率为零，功率因数为 1。
+</div>
+
+<div class="boxed-eq">
+$$i_{gq}^* = 0 \quad \xRightarrow{Q = -\frac{3}{2}V_g\cdot 0 = 0} \quad Q = 0 \quad \Longrightarrow \quad \text{PF} = \frac{P}{\sqrt{P^2+0}} = 1$$
+</div>
 
 <h3>4.2 功率平衡方程</h3>
 
-<p>稳态下忽略损耗时：</p>
+<h4>4.2.1 DC-link 能量守恒——动态方程的推导</h4>
 
-$$P_{ac} = P_{dc}$$
+<p>DC-link 电容是 AC 侧和 DC 负载之间的<strong>能量缓冲</strong>。在任意时刻，流入和流出电容的功率之差，等于电容中存储能量的变化率。</p>
 
-$$\frac{3}{2}\,V_g\,i_{gd} = V_{dc}\,I_{dc} = \frac{V_{dc}^2}{R_L}$$
+<p>电容中存储的能量为：</p>
 
-<p>DC-link 的能量守恒：</p>
+$$E_C = \frac{1}{2}\,C_{dc}\,V_{dc}^2$$
+
+<p>对时间求导（能量变化率 = 净输入功率）：</p>
+
+<div class="key-eq">
+$$\frac{dE_C}{dt} = \frac{1}{2}\,C_{dc}\,\frac{dV_{dc}^2}{dt} = P_{\text{in}} - P_{\text{out}}$$
+</div>
+
+<p>其中：</p>
+<ul>
+  <li>\(P_{\text{in}}\)：整流器从 AC 侧注入到 DC-link 的功率，即 \(P_{\text{in}} = \dfrac{3}{2}\,V_g\,i_{gd}\)</li>
+  <li>\(P_{\text{out}}\)：DC 负载消耗的功率。对于纯电阻负载 \(R_L\)，\(P_{\text{out}} = \dfrac{V_{dc}^2}{R_L}\)</li>
+</ul>
+
+<p>代入后得到<strong>DC-link 动态能量守恒方程</strong>：</p>
+
+<div class="key-eq">
+$$\frac{1}{2}\,C_{dc}\,\frac{dV_{dc}^2}{dt}
+= \underbrace{\frac{3}{2}\,V_g\,i_{gd}}_{P_{\text{in}}\text{（AC 侧输入功率）}}
+- \underbrace{\frac{V_{dc}^2}{R_L}}_{P_{\text{out}}\text{（DC 负载功率）}}$$
+</div>
+
+<div class="note">
+<strong>注意</strong>：利用 \(\dfrac{dV_{dc}^2}{dt} = 2\,V_{dc}\,\dfrac{dV_{dc}}{dt}\)，上式也可以写成：
+
+$$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = \frac{3}{2}\,V_g\,i_{gd} - \frac{V_{dc}^2}{R_L}$$
+
+两种写法完全等价，只是前者直接以"能量"为出发点，后者以"电压"为出发点。
+</div>
+
+<h4>4.2.2 稳态条件 \(P_{ac} = P_{dc}\) 与动态方程的关系</h4>
+
+<p>用户可能的疑问：<em>"如果 \(P_{ac} = P_{dc}\)，那么右边 \(P_{\text{in}} - P_{\text{out}} = 0\)，方程不就恒等于零了吗？这个方程还有什么意义？"</em></p>
+
+<p>答案是：<strong>\(P_{ac} = P_{dc}\) 仅在稳态下成立，不是任何时刻都成立。</strong></p>
+
+<p>该方程描述的是<strong>动态过程</strong>，即 DC-link 电压随时间变化的完整规律。在不同工况下：</p>
+
+<table>
+  <tr>
+    <th>工况</th>
+    <th>\(P_{\text{in}}\) vs \(P_{\text{out}}\)</th>
+    <th>\(\dfrac{dV_{dc}}{dt}\)</th>
+    <th>物理现象</th>
+  </tr>
+  <tr>
+    <td><strong>稳态</strong></td>
+    <td>\(P_{\text{in}} = P_{\text{out}}\)</td>
+    <td>\(= 0\)</td>
+    <td>\(V_{dc}\) 保持恒定</td>
+  </tr>
+  <tr>
+    <td><strong>负载突增</strong></td>
+    <td>\(P_{\text{in}} < P_{\text{out}}\)</td>
+    <td>\(< 0\)</td>
+    <td>\(V_{dc}\) 下降，电容放电补充缺额</td>
+  </tr>
+  <tr>
+    <td><strong>负载突减</strong></td>
+    <td>\(P_{\text{in}} > P_{\text{out}}\)</td>
+    <td>\(> 0\)</td>
+    <td>\(V_{dc}\) 上升，多余能量充入电容</td>
+  </tr>
+</table>
+
+<p>正是因为在<strong>暂态</strong>过程中 \(P_{\text{in}} \neq P_{\text{out}}\)，电容电压才会变化。控制器的任务就是：<strong>当检测到 \(V_{dc}\) 偏离参考值时，调整 \(i_{gd}\) 使 \(P_{\text{in}}\) 重新等于 \(P_{\text{out}}\)，让系统回到稳态。</strong></p>
+
+<div class="note">
+<strong>类比</strong>：这就像一个水池——进水量（\(P_{\text{in}}\)）和出水量（\(P_{\text{out}}\)）相等时水位（\(V_{dc}\)）不变。如果突然打开更大的出水阀（负载增加），水位开始下降；控制器检测到水位下降后增大进水量（增大 \(i_{gd}\)），直到进出水再次平衡。这个动态过程正是能量守恒方程所描述的。
+</div>
+
+<h4>4.2.3 稳态功率平衡</h4>
+
+<p>当系统达到稳态时 \(\dfrac{dV_{dc}}{dt}=0\)，能量方程左边为零，得到<strong>稳态功率平衡</strong>：</p>
 
 <div class="boxed-eq">
-$$\frac{1}{2}\,C_{dc}\,\frac{dV_{dc}^2}{dt} = P_{ac} - P_{dc} = \frac{3}{2}\,V_g\,i_{gd} - \frac{V_{dc}^2}{R_L}$$
+$$P_{ac} = P_{dc} \quad \Longrightarrow \quad \frac{3}{2}\,V_g\,i_{gd,\text{ss}} = \frac{V_{dc,\text{ss}}^2}{R_L}$$
 </div>
+
+<p>其中下标 ss 表示稳态值。由此可以求出稳态下所需的 d 轴电流：</p>
+
+$$i_{gd,\text{ss}} = \frac{2\,V_{dc,\text{ss}}^2}{3\,V_g\,R_L}$$
+
+<p>这就是维持某个目标直流电压所需要的有功电流大小。</p>
 
 <hr>
 
@@ -580,26 +696,141 @@ VdcF ←── DC电压反馈          igd ←── d轴电流反馈
 
 <h3>5.2 内环：dq 电流控制器</h3>
 
+<h4>5.2.0 控制系统的输入、输出与可控变量分析</h4>
+
+<p>在设计控制器之前，首先要弄清楚：<strong>什么是我们能控制的？什么是要被控制的？什么是外部扰动？</strong></p>
+
+<p>回顾 dq 电路方程（将 \(v_{rd}\) 移到等号左边，其余移到右边）：</p>
+
+$$L\,\frac{di_{gd}}{dt} = \underbrace{v_{gd}}_{\text{已知扰动}} - R\,i_{gd} + \omega L\,i_{gq} - \underbrace{v_{rd}}_{\text{控制输入}}$$
+
+<p>整理后可以画出以下因果关系图：</p>
+
+<table>
+  <tr>
+    <th>变量角色</th>
+    <th>变量</th>
+    <th>说明</th>
+  </tr>
+  <tr>
+    <td><strong>控制输入<br>(Manipulated Variable)</strong></td>
+    <td>\(v_{rd},\;v_{rq}\)<br>整流器交流侧电压</td>
+    <td>这是我们<strong>唯一能直接操纵</strong>的变量。通过 PWM 改变 IGBT 开关占空比来产生所需的 \(v_{rd},\;v_{rq}\)。</td>
+  </tr>
+  <tr>
+    <td><strong>被控输出<br>(Controlled Variable)</strong></td>
+    <td>内环：\(i_{gd},\;i_{gq}\)<br>外环：\(V_{dc}\)</td>
+    <td>内环目标：让电流跟踪参考值 \(i_{gd}^*,\;i_{gq}^*\)。<br>外环目标：让直流电压跟踪 \(V_{dc}^*\)。</td>
+  </tr>
+  <tr>
+    <td><strong>可测扰动<br>(Measurable Disturbance)</strong></td>
+    <td>\(v_{gd},\;v_{gq}\)<br>电网电压</td>
+    <td>电网电压不受我们控制，但可以测量，通过<strong>前馈</strong>补偿其影响。</td>
+  </tr>
+  <tr>
+    <td><strong>耦合扰动</strong></td>
+    <td>\(\omega L\,i_{gq}\) (在 d 轴)<br>\(\omega L\,i_{gd}\) (在 q 轴)</td>
+    <td>dq 坐标变换带来的交叉耦合，通过<strong>解耦前馈</strong>消除。</td>
+  </tr>
+  <tr>
+    <td><strong>不可测扰动</strong></td>
+    <td>\(P_{\text{load}}\)</td>
+    <td>负载功率变化，依靠 PI 控制器的积分项来消除。</td>
+  </tr>
+</table>
+
+<h4>为什么 \(v_{rd}\) 可以作为控制输入？—— PWM 整流器的作用</h4>
+
+<p>\(v_{rd}\) 是整流器交流侧电压的 d 轴分量。我们能控制它，是因为 PWM 整流器的工作原理：</p>
+
+<ol>
+  <li><strong>控制器计算</strong>出期望的 \(v_{rd}^*,\;v_{rq}^*\)</li>
+  <li>通过<strong>反 Park 变换</strong>将 dq 电压转回三相 abc：\(v_{ra}^*,\;v_{rb}^*,\;v_{rc}^*\)</li>
+  <li><strong>PWM 调制器</strong>将这些参考电压与三角载波比较，生成 6 路 IGBT 开关信号</li>
+  <li>IGBT 以高频开关动作，使整流器桥臂的<strong>平均输出电压</strong>等于参考电压：
+
+$$v_{rk} \approx v_{rk}^* \quad (k=a,b,c)$$
+
+<p>这里的"≈"在开关频率远高于基波频率时成立（典型开关频率 5~20 kHz，基波 50/60 Hz）。</p>
+  </li>
+</ol>
+
+<div class="note">
+<strong>本质</strong>：PWM 整流器是一个<strong>功率放大器</strong>——控制器给出"期望电压"（低功率信号），PWM 整流器利用直流母线上的高压，通过快速开关 IGBT 来"合成"这个电压（高功率输出）。这就是为什么 \(v_{rd}^*\) 可以被当作控制输入：控制器计算它，PWM 实现它。
+</div>
+
+<h4>级联控制的信号传递链</h4>
+
+<p>将上述变量关系串联起来，得到完整的控制链：</p>
+
+<pre><code>外环 PI                      内环 PI                    PWM + 整流器              物理电路
+  ┌────┐                     ┌────┐                     ┌────────┐              ┌──────┐
+  │    │  i*_gd              │    │  v*_rd              │        │  v_rd       │      │  i_gd
+  │ PI │─────────────────→   │ PI │──────────────→      │  PWM   │─────→       │ RL电路│──────→
+  │ _v │                     │ _d │                     │ 整流器  │              │      │
+  └────┘                     └────┘                     └────────┘              └──────┘
+    ↑                          ↑                                                  │
+    │ V*dc - Vdc               │ i*gd - igd                                       │ igd
+    │(电压误差)                 │(电流误差)                                         │(反馈)
+</code></pre>
+
+<ul>
+  <li><strong>外环 PI</strong>：输入 = 电压误差 \((V_{dc}^*-V_{dc})\) → 输出 = d 轴电流参考 \(i_{gd}^*\)</li>
+  <li><strong>内环 PI</strong>：输入 = 电流误差 \((i_{gd}^*-i_{gd})\) → 输出 = 整流器参考电压 \(v_{rd}^*\)</li>
+  <li><strong>PWM 整流器</strong>：输入 = 参考电压 \(v_{rd}^*\) → 输出 = 实际桥臂电压 \(v_{rd}\)</li>
+  <li><strong>RL 电路</strong>：输入 = \(v_{rd}\) → 输出 = 电网电流 \(i_{gd}\)（由物理方程 \(L\,di/dt = \ldots\) 决定）</li>
+</ul>
+
 <h4>5.2.1 控制目标</h4>
 
-<p>将 dq 坐标系下的系统方程重新整理为控制形式：</p>
+<p>将 dq 坐标系下的系统方程重新整理为<strong>"控制输入 → 被控输出"</strong>的因果形式。从 3.4 节的 d 轴方程出发：</p>
 
-$$L\,\frac{di_{gd}}{dt} = v_{gd} - R\,i_{gd} + \omega L\,i_{gq} - v_{rd}$$
+$$v_{gd} = R\,i_{gd} + L\,\frac{di_{gd}}{dt} - \omega L\,i_{gq} + v_{rd}$$
 
-$$L\,\frac{di_{gq}}{dt} = v_{gq} - R\,i_{gq} - \omega L\,i_{gd} - v_{rq}$$
+<p>将被控输出 \(i_{gd}\) 的导数放在左边，控制输入 \(v_{rd}\) 和扰动项放在右边：</p>
+
+$$L\,\frac{di_{gd}}{dt} = \underbrace{v_{gd}}_{\text{电网电压（可测扰动）}} - R\,i_{gd} + \underbrace{\omega L\,i_{gq}}_{\text{交叉耦合（可测扰动）}} - \underbrace{v_{rd}}_{\text{控制输入}}$$
+
+$$L\,\frac{di_{gq}}{dt} = \underbrace{v_{gq}}_{\text{电网电压（可测扰动）}} - R\,i_{gq} - \underbrace{\omega L\,i_{gd}}_{\text{交叉耦合（可测扰动）}} - \underbrace{v_{rq}}_{\text{控制输入}}$$
+
+<div class="note">
+<strong>为什么要把 \(v_{rd}\) 单独标记为控制输入？</strong> 因为在上面的方程中，右边其他项（\(v_{gd}\)、\(\omega L\,i_{gq}\)、\(R\,i_{gd}\)）要么是外部扰动，要么是状态量的被动反馈。唯一能由我们"主动选择其值"的就是 \(v_{rd}\)——我们通过 PWM 来设定它。选择不同的 \(v_{rd}\)，\(i_{gd}\) 就会有不同的动态响应。
+</div>
 
 <h4>5.2.2 PI 控制器 + 前馈解耦</h4>
+
+<p>控制器设计的核心思想：<strong>把能测量到的扰动都用前馈补偿掉，剩下的纯误差用 PI 控制器处理。</strong></p>
 
 <p>d 轴整流器参考电压：</p>
 
 <div class="key-eq">
-$$v_{rd}^* = v_{gd} + \omega L\,i_{gq} - \left(K_{pi} + \frac{K_{ii}}{s}\right)\!\bigl(i_{gd}^* - i_{gd}\bigr)$$
+$$v_{rd}^* = \underbrace{v_{gd}}_{\substack{\text{电网电压}\\\text{前馈补偿}}}
++ \underbrace{\omega L\,i_{gq}}_{\substack{\text{交叉耦合}\\\text{解耦补偿}}}
+- \underbrace{\left(K_{pi} + \frac{K_{ii}}{s}\right)\!\bigl(i_{gd}^* - i_{gd}\bigr)}_{\substack{\text{PI 控制器}\\\text{（处理剩余误差）}}}$$
 </div>
 
 <p>q 轴整流器参考电压：</p>
 
 <div class="key-eq">
-$$v_{rq}^* = v_{gq} - \omega L\,i_{gd} - \left(K_{pi} + \frac{K_{ii}}{s}\right)\!\bigl(i_{gq}^* - i_{gq}\bigr)$$
+$$v_{rq}^* = \underbrace{v_{gq}}_{\substack{\text{电网电压}\\\text{前馈补偿}}}
+- \underbrace{\omega L\,i_{gd}}_{\substack{\text{交叉耦合}\\\text{解耦补偿}}}
+- \underbrace{\left(K_{pi} + \frac{K_{ii}}{s}\right)\!\bigl(i_{gq}^* - i_{gq}\bigr)}_{\substack{\text{PI 控制器}\\\text{（处理剩余误差）}}}$$
+</div>
+
+<h4>为什么这样设计？——代入验证</h4>
+
+<p>将 d 轴控制律 \(v_{rd}^*\) 代入物理方程 \(L\,\dfrac{di_{gd}}{dt} = v_{gd} - Ri_{gd} + \omega Li_{gq} - v_{rd}\)：</p>
+
+$$L\,\frac{di_{gd}}{dt} = v_{gd} - Ri_{gd} + \omega Li_{gq} - \bigl[\,v_{gd} + \omega Li_{gq} - \text{PI}(i_{gd}^*-i_{gd})\,\bigr]$$
+
+<p>\(v_{gd}\) 和 \(\omega Li_{gq}\) <strong>正好对消</strong>：</p>
+
+$$L\,\frac{di_{gd}}{dt} = \cancel{v_{gd}} - Ri_{gd} + \cancel{\omega Li_{gq}} - \cancel{v_{gd}} - \cancel{\omega Li_{gq}} + \text{PI}(i_{gd}^*-i_{gd})$$
+
+$$\boxed{L\,\frac{di_{gd}}{dt} + Ri_{gd} = \text{PI}(i_{gd}^*-i_{gd})}$$
+
+<div class="note">
+<strong>结果</strong>：经过前馈解耦后，d 轴变成了一个简单的<strong>一阶 RL 系统被 PI 控制器驱动</strong>，与 q 轴完全独立！电网电压扰动和交叉耦合全部消失了。q 轴完全对称，结论一样。
 </div>
 
 <ul>
@@ -661,25 +892,86 @@ $$K_{ii} = R \cdot \omega_{bw,i}$$
 
 <h3>5.3 外环：DC-Link 电压控制器</h3>
 
-<h4>5.3.1 DC-Link 动态模型</h4>
+<h4>5.3.1 DC-Link 动态模型与小信号线性化</h4>
 
-<p>DC-link 电容上的能量平衡：</p>
+<p>DC-link 电容上的能量平衡（来自 4.2 节的推导）：</p>
 
-$$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = P_{in} - P_{out} = \frac{3}{2}\,V_g\,i_{gd} - P_{\text{load}}$$
+$$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = \frac{3}{2}\,V_g\,i_{gd} - P_{\text{load}}$$
 
-<p>对 \(V_{dc}\) 进行小信号线性化（在工作点 \(V_{dc0}\) 附近）：</p>
+<p><strong>问题</strong>：这个方程是<strong>非线性</strong>的——左边 \(V_{dc}\cdot\dfrac{dV_{dc}}{dt}\) 是两个变量的乘积。我们无法直接用线性控制理论（传递函数、PI 控制器设计）来处理非线性方程。因此需要<strong>小信号线性化</strong>。</p>
 
-$$V_{dc} = V_{dc0} + \tilde{v}_{dc}, \qquad i_{gd} = I_{gd0} + \tilde{i}_{gd}$$
+<h4>小信号线性化的完整步骤</h4>
 
-<p>线性化后的小信号模型：</p>
+<p><strong>第一步：定义稳态工作点</strong></p>
 
-$$C_{dc}\,V_{dc0}\,\frac{d\tilde{v}_{dc}}{dt} = \frac{3}{2}\,V_g\,\tilde{i}_{gd} - \tilde{P}_{\text{load}}$$
+<p>设系统在某个稳态工作点运行，所有变量分解为"稳态分量 + 小扰动量"：</p>
 
-<p>DC-link 电压到 d 轴电流的传递函数（\(\tilde{P}_{\text{load}}=0\)）：</p>
+$$V_{dc}(t) = \underbrace{V_{dc0}}_{\text{稳态直流分量}} + \underbrace{\tilde{v}_{dc}(t)}_{\text{小扰动量}}, \qquad |\tilde{v}_{dc}| \ll V_{dc0}$$
+
+$$i_{gd}(t) = \underbrace{I_{gd0}}_{\text{稳态直流分量}} + \underbrace{\tilde{i}_{gd}(t)}_{\text{小扰动量}}, \qquad |\tilde{i}_{gd}| \ll I_{gd0}$$
+
+$$P_{\text{load}}(t) = \underbrace{P_{\text{load},0}}_{\text{稳态值}} + \underbrace{\tilde{P}_{\text{load}}(t)}_{\text{小扰动量}}$$
+
+<p><strong>第二步：代入原方程并展开</strong></p>
+
+<p>将上述分解代入 \(C_{dc}\,V_{dc}\,\dfrac{dV_{dc}}{dt} = \dfrac{3}{2}\,V_g\,i_{gd} - P_{\text{load}}\)。</p>
+
+<p>注意 \(V_{dc0}\) 是常数，所以 \(\dfrac{dV_{dc}}{dt} = \dfrac{d\tilde{v}_{dc}}{dt}\)，代入后：</p>
+
+$$C_{dc}\,\bigl(V_{dc0}+\tilde{v}_{dc}\bigr)\,\frac{d\tilde{v}_{dc}}{dt}
+= \frac{3}{2}\,V_g\,(I_{gd0}+\tilde{i}_{gd}) - (P_{\text{load},0}+\tilde{P}_{\text{load}})$$
+
+<p>展开左边的乘积：</p>
+
+<div class="key-eq">
+$$C_{dc}\,V_{dc0}\,\frac{d\tilde{v}_{dc}}{dt}
+\;+\; \underbrace{C_{dc}\,\tilde{v}_{dc}\,\frac{d\tilde{v}_{dc}}{dt}}_{\text{二阶小量，忽略！}}
+= \frac{3}{2}\,V_g\,I_{gd0} + \frac{3}{2}\,V_g\,\tilde{i}_{gd} - P_{\text{load},0} - \tilde{P}_{\text{load}}$$
+</div>
+
+<p><strong>第三步：解释为什么 \(V_{dc}\) 变成了 \(V_{dc0}\) 而非 \(V_{dc0}+\tilde{v}_{dc}\)</strong></p>
+
+<div class="note">
+<strong>这是关键问题！</strong> 展开后左边有两项：
+<ul>
+  <li>\(C_{dc}\,V_{dc0}\,\dfrac{d\tilde{v}_{dc}}{dt}\) —— <strong>一阶小量</strong>（稳态常数 × 小量的导数）</li>
+  <li>\(C_{dc}\,\tilde{v}_{dc}\,\dfrac{d\tilde{v}_{dc}}{dt}\) —— <strong>二阶小量</strong>（小量 × 小量的导数）</li>
+</ul>
+<p>小信号线性化的核心假设是：<strong>扰动量远小于稳态量</strong>（\(|\tilde{v}_{dc}| \ll V_{dc0}\)）。因此：</p>
+$$\tilde{v}_{dc}\,\frac{d\tilde{v}_{dc}}{dt} \;\ll\; V_{dc0}\,\frac{d\tilde{v}_{dc}}{dt}$$
+<p>二阶小量 \(\tilde{v}_{dc}\cdot\dfrac{d\tilde{v}_{dc}}{dt}\) 相比一阶小量可以忽略不计。这就是为什么最终方程中 \(V_{dc}\) "变成了" \(V_{dc0}\)——<strong>不是粗暴地替换，而是严格展开后、忽略二阶小量的结果</strong>。</p>
+</div>
+
+<p><strong>第四步：分离稳态方程和小信号方程</strong></p>
+
+<p>忽略二阶小量后：</p>
+
+$$C_{dc}\,V_{dc0}\,\frac{d\tilde{v}_{dc}}{dt}
+= \frac{3}{2}\,V_g\,I_{gd0} + \frac{3}{2}\,V_g\,\tilde{i}_{gd} - P_{\text{load},0} - \tilde{P}_{\text{load}}$$
+
+<p>其中稳态分量满足（\(\dfrac{d\tilde{v}_{dc}}{dt}\) 在稳态下为零，左边 = 0）：</p>
+
+$$0 = \frac{3}{2}\,V_g\,I_{gd0} - P_{\text{load},0}$$
+
+<p>将稳态部分从等式两边减去，只剩下小信号分量：</p>
+
+<div class="key-eq">
+$$\boxed{C_{dc}\,V_{dc0}\,\frac{d\tilde{v}_{dc}}{dt} = \frac{3}{2}\,V_g\,\tilde{i}_{gd} - \tilde{P}_{\text{load}}}$$
+</div>
+
+<p>这就是<strong>线性的小信号动态方程</strong>，可以直接用于传递函数分析。</p>
+
+<p><strong>第五步：求传递函数</strong></p>
+
+<p>对上式做拉普拉斯变换（假设零初始条件），并令 \(\tilde{P}_{\text{load}}=0\)（分析 \(\tilde{i}_{gd}\) 到 \(\tilde{V}_{dc}\) 的关系）：</p>
+
+$$C_{dc}\,V_{dc0}\,s\,\tilde{V}_{dc}(s) = \frac{3}{2}\,V_g\,\tilde{I}_{gd}(s)$$
 
 <div class="boxed-eq">
 $$G_v(s) = \frac{\tilde{V}_{dc}(s)}{\tilde{I}_{gd}(s)} = \frac{3\,V_g}{2\,C_{dc}\,V_{dc0}\cdot s}$$
 </div>
+
+<p>这是一个<strong>纯积分环节</strong>（\(1/s\) 型），物理意义很直观：增加 d 轴电流 \(\tilde{i}_{gd}\)，意味着从 AC 侧多注入功率，多余功率充入电容，使 \(V_{dc}\) 持续上升——电压是电流的积分。</p>
 
 <h4>5.3.2 电压环 PI 控制器</h4>
 

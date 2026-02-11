@@ -301,19 +301,36 @@ $$Q = -\frac{3}{2} V_g \cdot i_{gq}$$
 **物理意义**：
 - \( i_{gd} \)（d 轴电流）**直接控制有功功率传输**
 - \( i_{gq} \)（q 轴电流）**直接控制无功功率传输**
-- 设 \( i_{gq}^* = 0 \) 即可实现**单位功率因数运行**
+
+#### 4.1.1 为什么 \( i_{gq}^* = 0 \) 能实现单位功率因数？
+
+功率因数定义为 \( \text{PF} = \cos\varphi \)，其中 \( \varphi \) 是电压与电流之间的相位差。单位功率因数（PF=1）等价于 \( Q = 0 \)。
+
+在电压定向下（\( v_{gq} = 0 \)）：\( Q = -\frac{3}{2} V_g \cdot i_{gq} \)。由于 \( V_g \neq 0 \)，当且仅当 \( i_{gq} = 0 \) 时 \( Q = 0 \)。
+
+从相量角度看：d 轴对齐电压方向，电流矢量的 q 分量就是相对于电压的"偏转量"。\( i_{gq} = 0 \) 意味着电流完全对准电压方向，两者同相，功率因数为 1。
 
 ### 4.2 功率平衡方程
 
-在稳态下，忽略损耗时：
+#### 4.2.1 DC-link 能量守恒——动态方程的推导
 
-$$P_{ac} = P_{dc}$$
+DC-link 电容中存储的能量为 \( E_C = \frac{1}{2} C_{dc} V_{dc}^2 \)。对时间求导（能量变化率 = 净输入功率）：
 
-$$\frac{3}{2} V_g \cdot i_{gd} = V_{dc} \cdot I_{dc} = \frac{V_{dc}^2}{R_L}$$
+$$\frac{dE_C}{dt} = \frac{1}{2} C_{dc} \frac{dV_{dc}^2}{dt} = P_{\text{in}} - P_{\text{out}}$$
 
-DC-link 的能量守恒：
+其中 \( P_{\text{in}} = \frac{3}{2} V_g \cdot i_{gd} \)（AC 侧输入功率），\( P_{\text{out}} = \frac{V_{dc}^2}{R_L} \)（DC 负载功率），得到：
 
-$$\frac{1}{2} C_{dc} \frac{dV_{dc}^2}{dt} = P_{ac} - P_{dc} = \frac{3}{2} V_g \cdot i_{gd} - \frac{V_{dc}^2}{R_L}$$
+$$\frac{1}{2} C_{dc} \frac{dV_{dc}^2}{dt} = \frac{3}{2} V_g \cdot i_{gd} - \frac{V_{dc}^2}{R_L}$$
+
+#### 4.2.2 稳态条件与动态方程的关系
+
+> **\( P_{ac} = P_{dc} \) 仅在稳态下成立，不是任何时刻都成立。** 该方程描述的是动态过程：稳态时 \( P_{\text{in}} = P_{\text{out}} \)，\( dV_{dc}/dt = 0 \)；负载突增时 \( P_{\text{in}} < P_{\text{out}} \)，\( V_{dc} \) 下降；负载突减时 \( P_{\text{in}} > P_{\text{out}} \)，\( V_{dc} \) 上升。控制器的任务就是调整 \( i_{gd} \) 使系统回到稳态。
+
+#### 4.2.3 稳态功率平衡
+
+当 \( dV_{dc}/dt = 0 \) 时：
+
+$$\frac{3}{2} V_g \cdot i_{gd,\text{ss}} = \frac{V_{dc,\text{ss}}^2}{R_L}$$
 
 ---
 
@@ -339,25 +356,40 @@ VdcF ←── DC电压反馈          igd ←── d轴电流反馈
 
 ### 5.2 内环：dq 电流控制器
 
+#### 5.2.0 控制系统的输入、输出与可控变量分析
+
+| 变量角色 | 变量 | 说明 |
+|---------|------|------|
+| **控制输入** | \( v_{rd}, v_{rq} \)（整流器电压） | 通过 PWM 改变 IGBT 开关占空比产生 |
+| **被控输出** | 内环：\( i_{gd}, i_{gq} \)；外环：\( V_{dc} \) | 控制目标 |
+| **可测扰动** | \( v_{gd}, v_{gq} \)（电网电压） | 通过前馈补偿 |
+| **耦合扰动** | \( \omega L i_{gq}, \omega L i_{gd} \) | 通过解耦前馈消除 |
+
+\( v_{rd} \) 可作为控制输入，因为 PWM 整流器是**功率放大器**：控制器计算参考电压 \( v_{rd}^* \)，经反 Park 变换回三相，PWM 调制器将其转化为 IGBT 开关信号，使桥臂平均输出电压等于参考值。
+
 #### 5.2.1 控制目标
 
-将 dq 坐标系下的系统方程重新整理为控制形式：
+将 dq 方程整理为"控制输入→被控输出"的因果形式：
 
-$$L \frac{di_{gd}}{dt} = v_{gd} - R \cdot i_{gd} + \omega L \cdot i_{gq} - v_{rd}$$
+$$L \frac{di_{gd}}{dt} = \underbrace{v_{gd}}_{\text{可测扰动}} - R \cdot i_{gd} + \underbrace{\omega L \cdot i_{gq}}_{\text{耦合扰动}} - \underbrace{v_{rd}}_{\text{控制输入}}$$
 
-$$L \frac{di_{gq}}{dt} = v_{gq} - R \cdot i_{gq} - \omega L \cdot i_{gd} - v_{rq}$$
+$$L \frac{di_{gq}}{dt} = \underbrace{v_{gq}}_{\text{可测扰动}} - R \cdot i_{gq} - \underbrace{\omega L \cdot i_{gd}}_{\text{耦合扰动}} - \underbrace{v_{rq}}_{\text{控制输入}}$$
 
 #### 5.2.2 PI 控制器 + 前馈解耦
 
-d 轴整流器参考电压：
+设计思想：把能测量到的扰动用前馈补偿掉，剩下的纯误差用 PI 处理。
 
-$$\boxed{v_{rd}^* = v_{gd} + \omega L \cdot i_{gq} - \left(K_{pi} + \frac{K_{ii}}{s}\right)(i_{gd}^* - i_{gd})}$$
+d 轴：
 
-q 轴整流器参考电压：
+$$\boxed{v_{rd}^* = \underbrace{v_{gd}}_{\text{电网前馈}} + \underbrace{\omega L \cdot i_{gq}}_{\text{解耦前馈}} - \underbrace{\left(K_{pi} + \frac{K_{ii}}{s}\right)(i_{gd}^* - i_{gd})}_{\text{PI 控制}}}$$
 
-$$\boxed{v_{rq}^* = v_{gq} - \omega L \cdot i_{gd} - \left(K_{pi} + \frac{K_{ii}}{s}\right)(i_{gq}^* - i_{gq})}$$
+q 轴：
 
-其中：
+$$\boxed{v_{rq}^* = \underbrace{v_{gq}}_{\text{电网前馈}} - \underbrace{\omega L \cdot i_{gd}}_{\text{解耦前馈}} - \underbrace{\left(K_{pi} + \frac{K_{ii}}{s}\right)(i_{gq}^* - i_{gq})}_{\text{PI 控制}}}$$
+
+将控制律代入物理方程后，\( v_{gd} \) 和 \( \omega L i_{gq} \) 正好对消，d 轴变为独立的一阶 RL 系统被 PI 驱动：\( L \frac{di_{gd}}{dt} + R i_{gd} = \text{PI}(i_{gd}^* - i_{gd}) \)。
+
+参数说明：
 - \( K_{pi} \)：电流环比例增益
 - \( K_{ii} \)：电流环积分增益
 - \( v_{gd}, v_{gq} \)：电网电压前馈项（抵消电网电压扰动）
@@ -413,25 +445,31 @@ $$K_{ii} = R \cdot \omega_{bw,i}$$
 
 ### 5.3 外环：DC-Link 电压控制器
 
-#### 5.3.1 DC-Link 动态模型
+#### 5.3.1 DC-Link 动态模型与小信号线性化
 
-DC-link 电容上的能量平衡：
+DC-link 能量平衡（非线性方程）：
 
-$$C_{dc} V_{dc} \frac{dV_{dc}}{dt} = P_{in} - P_{out} = \frac{3}{2} V_g \cdot i_{gd} - P_{load}$$
+$$C_{dc} V_{dc} \frac{dV_{dc}}{dt} = \frac{3}{2} V_g \cdot i_{gd} - P_{\text{load}}$$
 
-对 \( V_{dc} \) 进行小信号线性化（在工作点 \( V_{dc0} \) 附近）：
+**小信号线性化步骤**：
 
-$$V_{dc} = V_{dc0} + \tilde{v}_{dc}$$
+**第一步**：定义稳态工作点 + 小扰动：\( V_{dc} = V_{dc0} + \tilde{v}_{dc} \)，\( i_{gd} = I_{gd0} + \tilde{i}_{gd} \)
 
-$$i_{gd} = I_{gd0} + \tilde{i}_{gd}$$
+**第二步**：代入并展开左边的乘积（注意 \( \frac{dV_{dc}}{dt} = \frac{d\tilde{v}_{dc}}{dt} \)）：
 
-线性化后的小信号模型：
+$$C_{dc}(V_{dc0} + \tilde{v}_{dc})\frac{d\tilde{v}_{dc}}{dt} = C_{dc} V_{dc0} \frac{d\tilde{v}_{dc}}{dt} + \underbrace{C_{dc} \tilde{v}_{dc} \frac{d\tilde{v}_{dc}}{dt}}_{\text{二阶小量，忽略}}$$
 
-$$C_{dc} V_{dc0} \frac{d\tilde{v}_{dc}}{dt} = \frac{3}{2} V_g \cdot \tilde{i}_{gd} - \tilde{P}_{load}$$
+> **为什么 \( V_{dc} \) 变成了 \( V_{dc0} \) 而不是 \( V_{dc0} + \tilde{v}_{dc} \)？** 不是粗暴替换！而是展开后，\( \tilde{v}_{dc} \cdot \frac{d\tilde{v}_{dc}}{dt} \) 是两个小量相乘（二阶小量），远小于 \( V_{dc0} \cdot \frac{d\tilde{v}_{dc}}{dt} \)（一阶小量），因此被忽略。
 
-DC-link 电压到 d 轴电流的传递函数（\( \tilde{P}_{load} = 0 \)）：
+**第三步**：分离稳态方程（左边=0）和小信号方程：
+
+$$\boxed{C_{dc} V_{dc0} \frac{d\tilde{v}_{dc}}{dt} = \frac{3}{2} V_g \cdot \tilde{i}_{gd} - \tilde{P}_{\text{load}}}$$
+
+**第四步**：求传递函数（令 \( \tilde{P}_{\text{load}} = 0 \)）：
 
 $$G_{v}(s) = \frac{\tilde{V}_{dc}(s)}{\tilde{I}_{gd}(s)} = \frac{3 V_g}{2 C_{dc} V_{dc0} \cdot s}$$
+
+这是一个纯积分环节：增加 \( i_{gd} \) → 多注入功率 → 充电电容 → \( V_{dc} \) 持续上升。
 
 #### 5.3.2 电压环 PI 控制器
 
