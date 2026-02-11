@@ -207,15 +207,89 @@ $$v_{gc}(t) = V_m \sin\!\left(\omega t + \frac{2\pi}{3}\right)$$
   <li><strong>提供滤波电感</strong>：变压器漏抗充当整流器侧的线路电感</li>
 </ol>
 
-<p>变压器模型（简化等值电路，折算到二次侧）：</p>
+<h4>变压器两侧的变量定义</h4>
 
-$$\mathbf{V_2} = \frac{N_2}{N_1}\,\mathbf{V_1} - \bigl(R_{eq} + j\omega L_{eq}\bigr)\,\mathbf{I_2}$$
+<p>变压器将系统分为<strong>一次侧（Primary，电网侧，460V）</strong>和<strong>二次侧（Secondary，整流器侧，400V）</strong>：</p>
+
+<pre><code>          变压器
+  一次侧 ┃  n1 : n2  ┃ 二次侧
+  460 V  ┃ ───||─── ┃ 400 V
+         ┃          ┃
+  v_1ABC ┃          ┃ v_2ABC ──→ 三相整流器
+  i_1ABC ┃          ┃ i_2ABC ──→ 三相整流器
+         ┃   漏感L  ┃
+  (电网侧)          (整流器侧)</code></pre>
+
+<p>定义变比 \(n\)：</p>
+
+$$n = \frac{N_1}{N_2} = \frac{460}{400} = 1.15$$
+
+<p>理想变压器的基本关系：</p>
+
+<div class="boxed-eq">
+$$\frac{V_1}{V_2} = n = 1.15, \qquad \frac{I_1}{I_2} = \frac{1}{n} = \frac{1}{1.15} \approx 0.87$$
+</div>
+
+<p>即：</p>
+<ul>
+  <li><strong>电压</strong>：一次侧电压是二次侧的 1.15 倍（\(V_1 = 1.15\,V_2\)）</li>
+  <li><strong>电流</strong>：一次侧电流是二次侧的 0.87 倍（\(I_1 = I_2/1.15\)），因为功率守恒</li>
+</ul>
+
+<h4>变压器等值电路（折算到二次侧）</h4>
+
+<p>将变压器的非理想特性（漏感、铜损电阻）全部折算到二次侧，得到简化等值电路：</p>
+
+$$\mathbf{V_2} = \frac{1}{n}\,\mathbf{V_1} - \bigl(R_{eq} + j\omega L_{eq}\bigr)\,\mathbf{I_2}$$
 
 <ul>
-  <li>\(N_2/N_1 = 400/460 \approx 0.8696\)</li>
-  <li>\(R_{eq}\)：等效电阻</li>
-  <li>\(L_{eq}\)：等效漏感（关键滤波元件）</li>
+  <li>\(R_{eq}\)：折算到二次侧的等效电阻（包含一次侧和二次侧铜损）</li>
+  <li>\(L_{eq}\)：折算到二次侧的等效漏感（<strong>这就是后续建模中的 \(L\)</strong>）</li>
 </ul>
+
+<p>折算关系：如果一次侧漏感为 \(L_1\)，二次侧漏感为 \(L_2\)，则：</p>
+
+$$L_{eq} = L_2 + \frac{L_1}{n^2}, \qquad R_{eq} = R_2 + \frac{R_1}{n^2}$$
+
+<h4>2.2.1 从图中看：控制器测量的是哪一侧？</h4>
+
+<p>从 Simulink 系统图中可以看到一个关键细节：</p>
+
+<ul>
+  <li><strong>VgABC</strong>（输入到 Rectifier control 的电网电压）：测量的是<strong>一次侧（电网侧，460V）</strong>的电压</li>
+  <li><strong>IgABC</strong>（输入到 Rectifier control 的电网电流）：测量的是<strong>一次侧（电网侧）</strong>的电流</li>
+  <li><strong>三相整流器</strong>：连接在<strong>二次侧（400V）</strong></li>
+</ul>
+
+<p>这就产生了一个问题：<strong>控制器测量的量（一次侧）和被控对象实际工作的量（二次侧）不在同一侧！</strong>那么控制为什么还能工作？</p>
+
+<div class="key-eq">
+<strong>答案</strong>：一次侧和二次侧的电压、电流之间有确定的比例关系（由变比 \(n\) 决定），而且<strong>相位关系一致</strong>（对于 Y-Y 或 Δ-Δ 连接的变压器，一次侧和二次侧同相）。因此：
+
+$$v_{1,ABC} = n \cdot v_{2,ABC}, \qquad i_{1,ABC} = \frac{1}{n}\cdot i_{2,ABC}$$
+
+控制器只需要知道比例因子 \(n\)，就能从一次侧的测量值准确推算出二次侧的实际值。
+</div>
+
+<p>具体来说，控制器内部（或传感器标定中）会做以下处理：</p>
+
+<table>
+  <tr><th>测量量（一次侧）</th><th>换算关系</th><th>控制器使用的等效量（二次侧）</th></tr>
+  <tr>
+    <td>\(v_{g,1} = 460/\sqrt{3}\) V (相电压)</td>
+    <td>\(\div\; n = 1.15\)</td>
+    <td>\(v_{g,2} = 400/\sqrt{3}\) V</td>
+  </tr>
+  <tr>
+    <td>\(i_{g,1}\)（一次侧电流）</td>
+    <td>\(\times\; n = 1.15\)</td>
+    <td>\(i_{g,2} = n \cdot i_{g,1}\)（二次侧电流）</td>
+  </tr>
+</table>
+
+<div class="note">
+<strong>为什么在一次侧测量？</strong> 工程实践中在一次侧安装电压互感器（PT）和电流互感器（CT）可能更方便、更安全，或者在某些拓扑中传感器天然就在一次侧。只要变比已知，测量哪一侧在数学上是等价的——控制器通过标定（calibration）或数字增益将一次侧测量值转换为二次侧等效值。
+</div>
 
 <h3>2.3 三相 PWM 整流器 (Three-Phase Rectifier)</h3>
 
@@ -242,6 +316,57 @@ $$C_{dc}\,\frac{dV_{dc}}{dt} = i_{dc,\text{rect}} - i_{\text{load}}$$
   <li>\(i_{\text{load}} = V_{dc}/R_L\) 为负载电流</li>
 </ul>
 
+<h3>2.5 变压器在整个系统中的位置——信号流与测量点</h3>
+
+<p>现在将变压器明确放入全系统信号流中，标注每个量属于变压器的哪一侧：</p>
+
+<pre><code>  ┌──────────┐     ┌───────────────┐     ┌──────────────┐     ┌──────┐
+  │  AC 电网  │────→│   变压器       │────→│ 三相PWM整流器 │────→│DC-Link│
+  │  460 V   │     │ 460V → 400V   │     │  (二次侧)    │     │      │
+  └──────────┘     └───────────────┘     └──────────────┘     └──────┘
+       │                  │                      │                │
+    v_1,ABC           一次侧│二次侧            v_r,ABC          V_dc
+    i_1,ABC              │                   i_2,ABC
+       │                  │                      │
+       ↓                  │                      ↓
+  ┌──────────────────────────────────────────────────┐
+  │            Rectifier Control                      │
+  │                                                   │
+  │  输入：VgABC = v_1,ABC （一次侧 460V 电压）       │
+  │        IgABC = i_1,ABC （一次侧电流）             │
+  │        VdcF            （DC-link 电压）           │
+  │        VdcRef          （DC 电压参考值）          │
+  │                                                   │
+  │  内部处理：                                       │
+  │   ① 将一次侧测量值折算到二次侧等效值              │
+  │      v_g = v_1/n,  i_g = i_1×n                   │
+  │   ② 用折算后的值执行 dq 变换和 PI 控制            │
+  │   ③ 计算 v*_rd, v*_rq → 反变换 → v*_ABC          │
+  │                                                   │
+  │  输出：SR（开关信号）→ GateR → IGBT 门极          │
+  └──────────────────────────────────────────────────┘</code></pre>
+
+<div class="key-eq">
+<strong>关键认识</strong>：从图中看，传感器安装在<strong>变压器一次侧（电网侧 460V）</strong>，但整流器工作在<strong>变压器二次侧（400V）</strong>。控制器内部必须（显式或隐式地）将一次侧测量值<strong>折算到二次侧</strong>，才能正确地进行 dq 变换和 PI 控制。
+</div>
+
+<h4>折算对控制方程的影响</h4>
+
+<p>设变比 \(n = N_1/N_2 = 460/400 = 1.15\)。控制器收到的原始测量值是一次侧量，需要折算：</p>
+
+$$v_{g}^{\text{(控制用)}} = \frac{v_{g,1}}{n} = \frac{v_{g,1}}{1.15} \quad \text{（折算到二次侧电压）}$$
+
+$$i_{g}^{\text{(控制用)}} = n \cdot i_{g,1} = 1.15 \cdot i_{g,1} \quad \text{（折算到二次侧电流）}$$
+
+<p>折算后，所有后续的数学方程（dq 变换、PI 控制）中使用的 \(v_g\)、\(i_g\) 都是<strong>等效二次侧量</strong>。这就是为什么第 3 节的 KVL 方程可以统一写成一个简洁的 RL 回路——变压器的效果已经被"吸收"进了等效参数中。</p>
+
+<p>在工程实现中，这个折算可以是：</p>
+<ul>
+  <li><strong>硬件方式</strong>：电压互感器（PT）和电流互感器（CT）的变比本身就包含了折算系数</li>
+  <li><strong>软件方式</strong>：控制器 DSP 中在 ADC 采样后乘以对应的增益系数</li>
+  <li><strong>标幺值方式</strong>：将所有量转换为标幺值（per-unit），此时变压器变比的影响自动消失</li>
+</ul>
+
 <hr>
 
 <!-- ============================== Section 3 ============================== -->
@@ -249,19 +374,37 @@ $$C_{dc}\,\frac{dV_{dc}}{dt} = i_{dc,\text{rect}} - i_{\text{load}}$$
 
 <h3>3.1 abc 自然坐标系下的电路方程</h3>
 
-<p>对三相整流器系统应用基尔霍夫电压定律（KVL）：</p>
+<div class="note">
+<strong>重要约定</strong>：从本节开始，所有电压 \(v_g\)、电流 \(i_g\) 以及电路参数 \(R\)、\(L\)，均指<strong>折算到变压器二次侧的等效值</strong>。也就是说，变压器的效果已经通过等值电路被"吸收"进了下面的 \(R\) 和 \(L\) 中。即使控制器实际测量的是一次侧量（如图中所示），也已在控制器内部折算到二次侧。
+</div>
+
+<p>对变压器二次侧到整流器之间的回路应用基尔霍夫电压定律（KVL）：</p>
+
+<pre><code>  v_g（二次侧等效电压源）──[ R ]──[ L ]──→ v_r（整流器交流侧电压）
+                                    │
+                                  i_g（二次侧等效电流）</code></pre>
 
 $$v_{ga} = R\,i_{ga} + L\,\frac{di_{ga}}{dt} + v_{ra}$$
 $$v_{gb} = R\,i_{gb} + L\,\frac{di_{gb}}{dt} + v_{rb}$$
 $$v_{gc} = R\,i_{gc} + L\,\frac{di_{gc}}{dt} + v_{rc}$$
 
 <ul>
-  <li>\(v_{gk}\)：电网侧相电压（\(k=a,b,c\)）</li>
-  <li>\(i_{gk}\)：电网侧相电流</li>
+  <li>\(v_{gk}\)：<strong>二次侧等效</strong>电网相电压（= \(v_{1k}/n\)，\(k=a,b,c\)）</li>
+  <li>\(i_{gk}\)：<strong>二次侧等效</strong>电网相电流（= \(n \cdot i_{1k}\)）</li>
   <li>\(v_{rk}\)：整流器交流侧电压</li>
-  <li>\(R\)：线路等效电阻（含变压器铜损）</li>
-  <li>\(L\)：线路等效电感（含变压器漏感）</li>
+  <li>\(R = R_{eq}\)：<strong>变压器折算到二次侧的等效电阻</strong>（含一次侧和二次侧绕组铜损）</li>
+  <li>\(L = L_{eq}\)：<strong>变压器折算到二次侧的等效漏感</strong>（这是系统中最主要的电感元件）</li>
 </ul>
+
+<div class="note">
+<strong>变压器去哪了？</strong> 变压器并没有"消失"——它的所有物理效果都体现在：
+<ul>
+  <li>电压源 \(v_g\) 的幅值（400V 而非 460V）</li>
+  <li>电阻 \(R\) 中包含了变压器的铜损</li>
+  <li>电感 \(L\) 中包含了变压器的漏感（这是整个系统中<strong>最关键的电感</strong>，没有额外的外接滤波电感，全靠变压器漏感提供！）</li>
+</ul>
+这种"把变压器折算到一侧后用等值电路替代"的方法，是电力系统分析中的标准做法。
+</div>
 
 <p>矩阵形式：</p>
 
@@ -739,6 +882,10 @@ VdcF ←── DC电压反馈          igd ←── d轴电流反馈
 
 <p>在设计控制器之前，首先要弄清楚：<strong>什么是我们能控制的？什么是要被控制的？什么是外部扰动？</strong></p>
 
+<div class="note">
+<strong>关于变压器的提醒</strong>（参见 2.2 和 2.5 节）：本节所有变量 \(v_{gd},\;i_{gd}\) 等均指<strong>折算到变压器二次侧的等效值</strong>。虽然 Simulink 图中控制器的 VgABC 和 IgABC 输入来自一次侧（460V 侧），但控制器内部已通过变比 \(n = 1.15\) 将其折算到二次侧：\(v_g = v_{g,1}/n\)，\(i_g = n \cdot i_{g,1}\)。因此下面的分析中不需要再区分一次侧和二次侧——一切都基于二次侧等效量。
+</div>
+
 <p>回顾 dq 电路方程（将 \(v_{rd}\) 移到等号左边，其余移到右边）：</p>
 
 $$L\,\frac{di_{gd}}{dt} = \underbrace{v_{gd}}_{\text{已知扰动}} - R\,i_{gd} + \omega L\,i_{gq} - \underbrace{v_{rd}}_{\text{控制输入}}$$
@@ -763,8 +910,8 @@ $$L\,\frac{di_{gd}}{dt} = \underbrace{v_{gd}}_{\text{已知扰动}} - R\,i_{gd} 
   </tr>
   <tr>
     <td><strong>可测扰动<br>(Measurable Disturbance)</strong></td>
-    <td>\(v_{gd},\;v_{gq}\)<br>电网电压</td>
-    <td>电网电压不受我们控制，但可以测量，通过<strong>前馈</strong>补偿其影响。</td>
+    <td>\(v_{gd},\;v_{gq}\)<br>电网电压（二次侧等效）</td>
+    <td>实际测量于一次侧，经变比折算后使用。通过<strong>前馈</strong>补偿其影响。</td>
   </tr>
   <tr>
     <td><strong>耦合扰动</strong></td>
@@ -1389,8 +1536,14 @@ $$G_{\text{filter}}(s) = \frac{1}{\tau_f\,s + 1}$$
 <h2>9. 完整控制信号流程</h2>
 
 <ol>
-  <li><strong>测量</strong>：采集三相电网电压 \(v_{gABC}\)、三相电网电流 \(i_{gABC}\)、DC-link 电压 \(V_{dc}\)</li>
-  <li><strong>PLL 锁相</strong>：从 \(v_{gABC}\) 提取电网相角 \(\theta\)</li>
+  <li><strong>测量（一次侧）</strong>：在变压器一次侧（电网侧 460V）采集三相电压 \(v_{g,1,ABC}\)、三相电流 \(i_{g,1,ABC}\)；在 DC-link 直接采集 \(V_{dc}\)</li>
+  <li><strong>变压器折算</strong>：控制器内部将一次侧测量值折算到二次侧等效值（参见 2.5 节）：
+    <ul>
+      <li>\(v_{gABC} = v_{g,1,ABC}\,/\,n\)（电压除以变比 \(n=1.15\)）</li>
+      <li>\(i_{gABC} = n \cdot i_{g,1,ABC}\)（电流乘以变比）</li>
+    </ul>
+  </li>
+  <li><strong>PLL 锁相</strong>：从（折算后的）\(v_{gABC}\) 提取电网相角 \(\theta\)</li>
   <li><strong>坐标变换</strong>：
     <ul>
       <li>\(v_{gABC} \xrightarrow{abc\to dq} v_{gd},\;v_{gq}\)</li>
@@ -1399,16 +1552,16 @@ $$G_{\text{filter}}(s) = \frac{1}{\tau_f\,s + 1}$$
   </li>
   <li><strong>DC 电压滤波</strong>：\(V_{dc} \xrightarrow{\text{LPF}} V_{dcF}\)</li>
   <li><strong>外环 PI</strong>：\(e_v = V_{dc}^* - V_{dcF} \xrightarrow{PI_v} i_{gd}^*\)</li>
-  <li><strong>设定 q 轴电流参考</strong>：\(i_{gq}^*=0\)（单位功率因数）</li>
-  <li><strong>内环 PI + 解耦</strong>：
+  <li><strong>设定 q 轴电流参考</strong>：\(i_{gq}^*=0\)（单位功率因数，参见 4.1.1 节）</li>
+  <li><strong>内环 PI + 解耦</strong>（\(L\) 即变压器漏感 \(L_{eq}\)）：
     <ul>
       <li>\(v_{rd}^* = v_{gd} + \omega L\,i_{gq} - \text{PI}_d(i_{gd}^*-i_{gd})\)</li>
       <li>\(v_{rq}^* = v_{gq} - \omega L\,i_{gd} - \text{PI}_q(i_{gq}^*-i_{gq})\)</li>
     </ul>
   </li>
   <li><strong>反坐标变换</strong>：\(v_{rd}^*,\;v_{rq}^* \xrightarrow{dq\to abc} v_{ra}^*,\;v_{rb}^*,\;v_{rc}^*\)</li>
-  <li><strong>PWM 调制</strong>：生成 6 路 IGBT 门极信号 → GateR（Gate 驱动模块）</li>
-  <li><strong>功率转换</strong>：三相整流器桥将 AC 功率转换为 DC 功率</li>
+  <li><strong>PWM 调制</strong>：生成 6 路 IGBT 门极信号 → GateR → 驱动<strong>二次侧的整流器 IGBT</strong></li>
+  <li><strong>功率转换</strong>：二次侧三相整流器桥将 AC（400V）转换为 DC 功率，经电容滤波后输出稳定直流</li>
 </ol>
 
 <hr>
