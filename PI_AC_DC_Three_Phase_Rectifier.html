@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PI 控制的三相 AC-DC 整流器 —— 数学与物理过程详解</title>
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['$$', '$$']],
+    tags: 'ams'
+  },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a1a2e;
+    --heading: #16213e;
+    --accent: #0f3460;
+    --accent2: #e94560;
+    --border: #ddd;
+    --code-bg: #f4f4f8;
+    --box-bg: #eef2ff;
+    --box-border: #4361ee;
+    --table-header: #0f3460;
+    --table-alt: #f8f9ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 30px 40px 60px;
+  }
+  h1 {
+    font-size: 2em;
+    color: var(--heading);
+    border-bottom: 3px solid var(--accent2);
+    padding-bottom: 12px;
+    margin: 30px 0 20px;
+  }
+  h2 {
+    font-size: 1.5em;
+    color: var(--accent);
+    border-left: 5px solid var(--accent2);
+    padding-left: 14px;
+    margin: 40px 0 16px;
+  }
+  h3 {
+    font-size: 1.2em;
+    color: var(--heading);
+    margin: 28px 0 12px;
+  }
+  h4 {
+    font-size: 1.05em;
+    color: #333;
+    margin: 20px 0 10px;
+  }
+  p { margin: 10px 0; }
+  ul, ol { margin: 8px 0 8px 28px; }
+  li { margin: 4px 0; }
+  strong { color: var(--accent); }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+  pre {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 16px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.6;
+    margin: 14px 0;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.95em;
+  }
+  th {
+    background: var(--table-header);
+    color: #fff;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:nth-child(even) td { background: var(--table-alt); }
+  .boxed-eq {
+    background: var(--box-bg);
+    border-left: 4px solid var(--box-border);
+    padding: 14px 20px;
+    margin: 16px 0;
+    border-radius: 0 8px 8px 0;
+    overflow-x: auto;
+  }
+  .key-eq {
+    background: #fff8e1;
+    border: 2px solid #f9a825;
+    padding: 16px 20px;
+    margin: 18px 0;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  hr {
+    border: none;
+    border-top: 2px solid var(--border);
+    margin: 36px 0;
+  }
+  .note {
+    background: #e8f5e9;
+    border-left: 4px solid #43a047;
+    padding: 12px 18px;
+    margin: 14px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  mjx-container[jax="SVG"][display="true"] {
+    margin: 16px 0 !important;
+    overflow-x: auto;
+  }
+  @media (max-width: 700px) {
+    body { padding: 16px; }
+    h1 { font-size: 1.5em; }
+  }
+</style>
+</head>
+<body>
+
+<h1>PI 控制的三相 AC-DC 整流器 —— 数学与物理过程详解</h1>
+
+<!-- ============================== Section 1 ============================== -->
+<h2>1. 系统概述</h2>
+
+<p>本系统是一个<strong>三相电网连接的有源整流器（Active Front End, AFE）</strong>，其核心功能是将三相交流电（AC）转换为可控的直流电（DC）。系统采用 <strong>PI（比例-积分）控制器</strong> 在 dq 同步旋转坐标系下实现对有功和无功功率的解耦控制，从而实现：</p>
+
+<ul>
+  <li><strong>直流侧电压稳定控制</strong>（DC-link voltage regulation）</li>
+  <li><strong>网侧功率因数校正</strong>（Power Factor Correction, PFC）</li>
+  <li><strong>低谐波电流注入</strong>（Low THD grid current）</li>
+</ul>
+
+<h3>系统参数（来自图示）</h3>
+<table>
+  <tr><th>参数</th><th>值</th></tr>
+  <tr><td>变压器容量</td><td>200 kVA</td></tr>
+  <tr><td>变压器电压比</td><td>460 V / 400 V</td></tr>
+  <tr><td>电网侧电压</td><td>460 V (线电压有效值)</td></tr>
+  <tr><td>整流器侧电压</td><td>400 V (线电压有效值)</td></tr>
+</table>
+
+<hr>
+
+<!-- ============================== Section 2 ============================== -->
+<h2>2. 系统物理结构</h2>
+
+<p>系统由以下主要部分组成：</p>
+<pre><code>三相电网 → 变压器 (460V/400V) → 三相PWM整流器 → DC-Link电容 → 直流负载
+    ↑                                    ↑
+    |                                    |
+    +---- 电压/电流传感器 ←---- PI控制器 ←----+</code></pre>
+
+<h3>2.1 AC 电网 (AC Grid)</h3>
+
+<p>三相平衡正弦电压源，提供三相对称电压：</p>
+
+$$v_{ga}(t) = V_m \sin(\omega t)$$
+
+$$v_{gb}(t) = V_m \sin\!\left(\omega t - \frac{2\pi}{3}\right)$$
+
+$$v_{gc}(t) = V_m \sin\!\left(\omega t + \frac{2\pi}{3}\right)$$
+
+<p>其中：</p>
+<ul>
+  <li>\(V_m\) 为相电压峰值，\(V_m = \dfrac{460\sqrt{2}}{\sqrt{3}} \approx 375.6\;\text{V}\)</li>
+  <li>\(\omega = 2\pi f = 2\pi \times 60 \approx 377\;\text{rad/s}\)（假设 60 Hz 电网）</li>
+</ul>
+
+<h3>2.2 变压器 (Transformer)</h3>
+
+<p>200 kVA 三相变压器，变比为 460 V / 400 V。</p>
+
+<p>变压器的作用：</p>
+<ol>
+  <li><strong>电压匹配</strong>：将电网电压（460 V）降低到整流器额定电压（400 V）</li>
+  <li><strong>电气隔离</strong>：提供电网与负载之间的电气隔离</li>
+  <li><strong>提供滤波电感</strong>：变压器漏抗充当整流器侧的线路电感</li>
+</ol>
+
+<p>变压器模型（简化等值电路，折算到二次侧）：</p>
+
+$$\mathbf{V_2} = \frac{N_2}{N_1}\,\mathbf{V_1} - \bigl(R_{eq} + j\omega L_{eq}\bigr)\,\mathbf{I_2}$$
+
+<ul>
+  <li>\(N_2/N_1 = 400/460 \approx 0.8696\)</li>
+  <li>\(R_{eq}\)：等效电阻</li>
+  <li>\(L_{eq}\)：等效漏感（关键滤波元件）</li>
+</ul>
+
+<h3>2.3 三相 PWM 整流器 (Three-Phase Rectifier)</h3>
+
+<p>由 <strong>6 个 IGBT 开关</strong>（带反并联二极管）组成的三相全桥拓扑。</p>
+
+<p>每个桥臂的开关函数定义为：</p>
+
+$$S_k = \begin{cases} 1, & \text{上管导通，下管关断} \\[4pt] 0, & \text{上管关断，下管导通} \end{cases}, \quad k = a,\, b,\, c$$
+
+<p>整流器交流侧电压与开关函数的关系：</p>
+
+$$v_{ra} = S_a \cdot V_{dc}, \qquad v_{rb} = S_b \cdot V_{dc}, \qquad v_{rc} = S_c \cdot V_{dc}$$
+
+<h3>2.4 DC-Link（直流母线）</h3>
+
+<p>由直流侧电容 \(C_{dc}\) 和负载电阻 \(R_L\) 组成。DC-link 电容的动态方程：</p>
+
+<div class="boxed-eq">
+$$C_{dc}\,\frac{dV_{dc}}{dt} = i_{dc,\text{rect}} - i_{\text{load}}$$
+</div>
+
+<ul>
+  <li>\(i_{dc,\text{rect}} = S_a \cdot i_{ga} + S_b \cdot i_{gb} + S_c \cdot i_{gc}\) 为整流器输出的直流电流</li>
+  <li>\(i_{\text{load}} = V_{dc}/R_L\) 为负载电流</li>
+</ul>
+
+<hr>
+
+<!-- ============================== Section 3 ============================== -->
+<h2>3. 三相系统的数学建模</h2>
+
+<h3>3.1 abc 自然坐标系下的电路方程</h3>
+
+<p>对三相整流器系统应用基尔霍夫电压定律（KVL）：</p>
+
+$$v_{ga} = R\,i_{ga} + L\,\frac{di_{ga}}{dt} + v_{ra}$$
+$$v_{gb} = R\,i_{gb} + L\,\frac{di_{gb}}{dt} + v_{rb}$$
+$$v_{gc} = R\,i_{gc} + L\,\frac{di_{gc}}{dt} + v_{rc}$$
+
+<ul>
+  <li>\(v_{gk}\)：电网侧相电压（\(k=a,b,c\)）</li>
+  <li>\(i_{gk}\)：电网侧相电流</li>
+  <li>\(v_{rk}\)：整流器交流侧电压</li>
+  <li>\(R\)：线路等效电阻（含变压器铜损）</li>
+  <li>\(L\)：线路等效电感（含变压器漏感）</li>
+</ul>
+
+<p>矩阵形式：</p>
+
+$$\begin{bmatrix} v_{ga} \\ v_{gb} \\ v_{gc} \end{bmatrix}
+= R \begin{bmatrix} i_{ga} \\ i_{gb} \\ i_{gc} \end{bmatrix}
++ L \frac{d}{dt} \begin{bmatrix} i_{ga} \\ i_{gb} \\ i_{gc} \end{bmatrix}
++ \begin{bmatrix} v_{ra} \\ v_{rb} \\ v_{rc} \end{bmatrix}$$
+
+<h3>3.2 Clark 变换 (abc → αβ)</h3>
+
+<p>为简化三相系统的分析，首先进行 Clark 变换，将三相 abc 坐标变换到两相静止 αβ 坐标系：</p>
+
+<div class="boxed-eq">
+$$\begin{bmatrix} f_\alpha \\ f_\beta \end{bmatrix}
+= \frac{2}{3}\begin{bmatrix} 1 & -\tfrac{1}{2} & -\tfrac{1}{2} \\[4pt] 0 & \tfrac{\sqrt{3}}{2} & -\tfrac{\sqrt{3}}{2} \end{bmatrix}
+\begin{bmatrix} f_a \\ f_b \\ f_c \end{bmatrix}$$
+</div>
+
+<p>其中 \(f\) 代表电压或电流。</p>
+
+<h3>3.3 Park 变换 (αβ → dq)</h3>
+
+<p>然后进行 Park 变换，将静止 αβ 坐标系变换到与电网电压同步旋转的 dq 坐标系：</p>
+
+<div class="boxed-eq">
+$$\begin{bmatrix} f_d \\ f_q \end{bmatrix}
+= \begin{bmatrix} \cos\theta & \sin\theta \\ -\sin\theta & \cos\theta \end{bmatrix}
+\begin{bmatrix} f_\alpha \\ f_\beta \end{bmatrix}$$
+</div>
+
+<p>其中 \(\theta = \omega t\) 是电网电压矢量的角度，通过 <strong>锁相环（PLL）</strong> 获取。</p>
+
+<div class="note">
+<strong>Park 变换的核心优势</strong>：在 dq 坐标系中，稳态下的三相正弦量变为直流量，使 PI 控制器可以实现零稳态误差跟踪。
+</div>
+
+<h3>3.4 dq 坐标系下的系统方程</h3>
+
+<p>在 dq 同步旋转坐标系中，三相电路方程变为：</p>
+
+<div class="key-eq">
+$$v_{gd} = R\,i_{gd} + L\,\frac{di_{gd}}{dt} - \omega L\,i_{gq} + v_{rd}$$
+
+$$v_{gq} = R\,i_{gq} + L\,\frac{di_{gq}}{dt} + \omega L\,i_{gd} + v_{rq}$$
+</div>
+
+<p><strong>关键特征：</strong></p>
+<ul>
+  <li>出现了 <strong>交叉耦合项</strong>：\(-\omega L\,i_{gq}\) 和 \(+\omega L\,i_{gd}\)</li>
+  <li>d 轴和 q 轴的电流动态相互耦合</li>
+  <li>需要<strong>前馈解耦</strong>来实现独立控制</li>
+</ul>
+
+<h3>3.5 dq 坐标系中电网电压的对齐</h3>
+
+<p>采用<strong>电网电压定向（Grid Voltage Oriented, GVO）</strong>策略——将 d 轴对齐到电网电压矢量方向：</p>
+
+$$v_{gd} = V_g, \qquad v_{gq} = 0$$
+
+<p>其中 \(V_g\) 为电网电压幅值。在此定向下：</p>
+<ul>
+  <li><strong>有功功率</strong>仅与 d 轴电流相关</li>
+  <li><strong>无功功率</strong>仅与 q 轴电流相关</li>
+</ul>
+
+<hr>
+
+<!-- ============================== Section 4 ============================== -->
+<h2>4. 功率分析</h2>
+
+<h3>4.1 瞬时功率理论</h3>
+
+<p>在 dq 坐标系下，三相系统的有功功率和无功功率为：</p>
+
+<div class="key-eq">
+$$P = \frac{3}{2}\bigl(v_{gd}\,i_{gd} + v_{gq}\,i_{gq}\bigr)$$
+
+$$Q = \frac{3}{2}\bigl(v_{gq}\,i_{gd} - v_{gd}\,i_{gq}\bigr)$$
+</div>
+
+<p>由于 \(v_{gq}=0\)（电压定向），简化为：</p>
+
+$$P = \frac{3}{2}\,V_g\,i_{gd}$$
+
+$$Q = -\frac{3}{2}\,V_g\,i_{gq}$$
+
+<p><strong>物理意义：</strong></p>
+<ul>
+  <li>\(i_{gd}\)（d 轴电流）<strong>直接控制有功功率传输</strong></li>
+  <li>\(i_{gq}\)（q 轴电流）<strong>直接控制无功功率传输</strong></li>
+  <li>设 \(i_{gq}^*=0\) 即可实现<strong>单位功率因数运行</strong></li>
+</ul>
+
+<h3>4.2 功率平衡方程</h3>
+
+<p>稳态下忽略损耗时：</p>
+
+$$P_{ac} = P_{dc}$$
+
+$$\frac{3}{2}\,V_g\,i_{gd} = V_{dc}\,I_{dc} = \frac{V_{dc}^2}{R_L}$$
+
+<p>DC-link 的能量守恒：</p>
+
+<div class="boxed-eq">
+$$\frac{1}{2}\,C_{dc}\,\frac{dV_{dc}^2}{dt} = P_{ac} - P_{dc} = \frac{3}{2}\,V_g\,i_{gd} - \frac{V_{dc}^2}{R_L}$$
+</div>
+
+<hr>
+
+<!-- ============================== Section 5 ============================== -->
+<h2>5. PI 控制器设计</h2>
+
+<p>系统采用 <strong>级联控制结构（Cascaded Control）</strong>，包含：</p>
+<ol>
+  <li><strong>外环</strong>：DC-link 电压控制环（慢环）</li>
+  <li><strong>内环</strong>：电网电流控制环（快环）</li>
+</ol>
+
+<h3>5.1 控制系统结构图</h3>
+<pre><code>VdcRef ──→ [PI_v] ──→ id_ref ──→ [PI_id] ──→ vrd* ──→ [PWM] ──→ 整流器
+  ↑                                  ↑
+  |                                  |
+VdcF ←── DC电压反馈          igd ←── d轴电流反馈
+
+                     0 ──→ [PI_iq] ──→ vrq* ──→ [PWM] ──→ 整流器
+                              ↑
+                              |
+                       igq ←── q轴电流反馈</code></pre>
+
+<h3>5.2 内环：dq 电流控制器</h3>
+
+<h4>5.2.1 控制目标</h4>
+
+<p>将 dq 坐标系下的系统方程重新整理为控制形式：</p>
+
+$$L\,\frac{di_{gd}}{dt} = v_{gd} - R\,i_{gd} + \omega L\,i_{gq} - v_{rd}$$
+
+$$L\,\frac{di_{gq}}{dt} = v_{gq} - R\,i_{gq} - \omega L\,i_{gd} - v_{rq}$$
+
+<h4>5.2.2 PI 控制器 + 前馈解耦</h4>
+
+<p>d 轴整流器参考电压：</p>
+
+<div class="key-eq">
+$$v_{rd}^* = v_{gd} + \omega L\,i_{gq} - \left(K_{pi} + \frac{K_{ii}}{s}\right)\!\bigl(i_{gd}^* - i_{gd}\bigr)$$
+</div>
+
+<p>q 轴整流器参考电压：</p>
+
+<div class="key-eq">
+$$v_{rq}^* = v_{gq} - \omega L\,i_{gd} - \left(K_{pi} + \frac{K_{ii}}{s}\right)\!\bigl(i_{gq}^* - i_{gq}\bigr)$$
+</div>
+
+<ul>
+  <li>\(K_{pi}\)：电流环比例增益</li>
+  <li>\(K_{ii}\)：电流环积分增益</li>
+  <li>\(v_{gd},\;v_{gq}\)：电网电压前馈项（抵消电网电压扰动）</li>
+  <li>\(\omega L\,i_{gq},\;\omega L\,i_{gd}\)：交叉耦合解耦项</li>
+</ul>
+
+<h4>5.2.3 PI 控制器传递函数</h4>
+
+$$G_{PI,i}(s) = K_{pi} + \frac{K_{ii}}{s} = K_{pi}\,\frac{s + K_{ii}/K_{pi}}{s} = K_{pi}\,\frac{s + \tau_i^{-1}}{s}$$
+
+<p>其中 \(\tau_i = K_{pi}/K_{ii}\) 为积分时间常数。</p>
+
+<h4>5.2.4 解耦后的电流环传递函数</h4>
+
+<p>在完美解耦和前馈补偿下，d 轴和 q 轴的电流控制环变为相同的一阶系统。</p>
+
+<p>被控对象（Plant）：</p>
+
+$$G_p(s) = \frac{I_{gd}(s)}{V_{rd}(s)} = \frac{1}{Ls + R}$$
+
+<p>开环传递函数：</p>
+
+$$G_{OL,i}(s) = G_{PI,i}(s)\cdot G_p(s) = \frac{K_{pi}\bigl(s + K_{ii}/K_{pi}\bigr)}{s}\cdot\frac{1}{Ls + R}$$
+
+<h4>5.2.5 电流环参数整定</h4>
+
+<p>采用<strong>零极点对消法</strong>（Pole-Zero Cancellation）——令 PI 控制器的零点对消被控对象的极点：</p>
+
+<div class="boxed-eq">
+$$\frac{K_{ii}}{K_{pi}} = \frac{R}{L}$$
+</div>
+
+<p>开环传递函数简化为：</p>
+
+$$G_{OL,i}(s) = \frac{K_{pi}}{Ls}$$
+
+<p>闭环传递函数为一阶系统：</p>
+
+$$G_{CL,i}(s) = \frac{K_{pi}/L}{s + K_{pi}/L} = \frac{1}{\tau_{ci}\,s + 1}$$
+
+<p>闭环时间常数：</p>
+
+<div class="key-eq">
+$$\tau_{ci} = \frac{L}{K_{pi}}$$
+</div>
+
+<p>选择期望带宽 \(\omega_{bw,i}\)，则：</p>
+
+$$K_{pi} = L \cdot \omega_{bw,i}$$
+
+$$K_{ii} = R \cdot \omega_{bw,i}$$
+
+<div class="note">
+<strong>典型设计</strong>：电流环带宽选取为开关频率的 1/10 至 1/5。
+</div>
+
+<h3>5.3 外环：DC-Link 电压控制器</h3>
+
+<h4>5.3.1 DC-Link 动态模型</h4>
+
+<p>DC-link 电容上的能量平衡：</p>
+
+$$C_{dc}\,V_{dc}\,\frac{dV_{dc}}{dt} = P_{in} - P_{out} = \frac{3}{2}\,V_g\,i_{gd} - P_{\text{load}}$$
+
+<p>对 \(V_{dc}\) 进行小信号线性化（在工作点 \(V_{dc0}\) 附近）：</p>
+
+$$V_{dc} = V_{dc0} + \tilde{v}_{dc}, \qquad i_{gd} = I_{gd0} + \tilde{i}_{gd}$$
+
+<p>线性化后的小信号模型：</p>
+
+$$C_{dc}\,V_{dc0}\,\frac{d\tilde{v}_{dc}}{dt} = \frac{3}{2}\,V_g\,\tilde{i}_{gd} - \tilde{P}_{\text{load}}$$
+
+<p>DC-link 电压到 d 轴电流的传递函数（\(\tilde{P}_{\text{load}}=0\)）：</p>
+
+<div class="boxed-eq">
+$$G_v(s) = \frac{\tilde{V}_{dc}(s)}{\tilde{I}_{gd}(s)} = \frac{3\,V_g}{2\,C_{dc}\,V_{dc0}\cdot s}$$
+</div>
+
+<h4>5.3.2 电压环 PI 控制器</h4>
+
+$$G_{PI,v}(s) = K_{pv} + \frac{K_{iv}}{s}$$
+
+<p>其输出为 d 轴电流参考值 \(i_{gd}^*\)：</p>
+
+<div class="key-eq">
+$$i_{gd}^* = \left(K_{pv} + \frac{K_{iv}}{s}\right)\!\bigl(V_{dc}^* - V_{dc}\bigr)$$
+</div>
+
+<h4>5.3.3 电压环开环传递函数</h4>
+
+<p>考虑内环闭环传递函数 \(G_{CL,i}(s)\)：</p>
+
+$$G_{OL,v}(s) = G_{PI,v}(s)\cdot G_{CL,i}(s)\cdot G_v(s)$$
+
+$$= \left(K_{pv} + \frac{K_{iv}}{s}\right)\cdot\frac{1}{\tau_{ci}\,s+1}\cdot\frac{3\,V_g}{2\,C_{dc}\,V_{dc0}\cdot s}$$
+
+<h4>5.3.4 电压环参数整定</h4>
+
+<p>若内环足够快（\(\tau_{ci}\ll\tau_{cv}\)），可近似 \(G_{CL,i}(s)\approx 1\)：</p>
+
+$$G_{OL,v}(s) \approx \frac{(K_{pv}\,s + K_{iv})\cdot 3\,V_g}{2\,C_{dc}\,V_{dc0}\cdot s^2}$$
+
+<p>采用<strong>模量最优法</strong>（Modulus Optimum）整定结果：</p>
+
+<div class="boxed-eq">
+$$K_{pv} = \frac{2\,C_{dc}\,V_{dc0}\,\omega_{bw,v}}{3\,V_g}$$
+
+$$K_{iv} = \frac{K_{pv}}{\tau_{iv}}$$
+</div>
+
+<p>其中 \(\omega_{bw,v}\) 为电压环期望带宽，通常选取为电流环带宽的 1/5 至 1/10。</p>
+
+<h3>5.4 带宽分离原则</h3>
+
+<div class="key-eq">
+$$\omega_{bw,v} \;\ll\; \omega_{bw,i} \;\ll\; \omega_{sw}$$
+</div>
+
+<ul>
+  <li>\(\omega_{sw}\)：PWM 开关角频率</li>
+  <li>\(\omega_{bw,i}\)：电流环带宽（典型：开关频率的 1/10 ~ 1/5）</li>
+  <li>\(\omega_{bw,v}\)：电压环带宽（典型：电流环带宽的 1/5 ~ 1/10）</li>
+</ul>
+
+<hr>
+
+<!-- ============================== Section 6 ============================== -->
+<h2>6. 锁相环 (PLL)</h2>
+
+<p>锁相环用于从电网电压中提取相角 \(\theta\)，这是 Park 变换的基础。</p>
+
+<h3>6.1 SRF-PLL 结构</h3>
+
+$$v_{gq} = V_g\sin(\theta_{\text{grid}} - \theta_{\text{PLL}}) \approx V_g\,(\theta_{\text{grid}} - \theta_{\text{PLL}})$$
+
+<p>当 \(\theta_{\text{PLL}}\) 锁定到 \(\theta_{\text{grid}}\) 时，\(v_{gq}\to 0\)。</p>
+
+<p>PLL 的控制律：</p>
+
+<div class="boxed-eq">
+$$\hat{\omega} = K_{p,\text{PLL}}\cdot v_{gq} + K_{i,\text{PLL}}\!\int v_{gq}\,dt$$
+
+$$\hat{\theta} = \int \hat{\omega}\,dt$$
+</div>
+
+<hr>
+
+<!-- ============================== Section 7 ============================== -->
+<h2>7. PWM 调制</h2>
+
+<h3>7.1 空间矢量脉宽调制 (SVPWM)</h3>
+
+<p>将 dq 坐标系的参考电压 \(v_{rd}^*,\;v_{rq}^*\) 经过反 Park 变换和反 Clark 变换，得到三相调制信号，再通过 SVPWM 生成 IGBT 的门极驱动信号。</p>
+
+<p>反 Park 变换：</p>
+
+$$\begin{bmatrix} v_{r\alpha}^* \\ v_{r\beta}^* \end{bmatrix}
+= \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}
+\begin{bmatrix} v_{rd}^* \\ v_{rq}^* \end{bmatrix}$$
+
+<p>调制指数：</p>
+
+$$m = \frac{\sqrt{v_{rd}^{*2} + v_{rq}^{*2}}}{V_{dc}/2}$$
+
+<p>线性调制范围：\(0 \le m \le 1.15\)（SVPWM 情况下）</p>
+
+<hr>
+
+<!-- ============================== Section 8 ============================== -->
+<h2>8. DC-Link 电压滤波</h2>
+
+<p>图中 DC-link 电压反馈信号 <code>[VdcF]</code> 表示使用了低通滤波器对测量的 DC 电压进行滤波。</p>
+
+<p>滤波器传递函数（一阶低通）：</p>
+
+<div class="boxed-eq">
+$$G_{\text{filter}}(s) = \frac{1}{\tau_f\,s + 1}$$
+</div>
+
+<p>其中 \(\tau_f\) 为滤波时间常数。这可以抑制 DC-link 电压中的开关纹波和二次谐波分量。</p>
+
+<hr>
+
+<!-- ============================== Section 9 ============================== -->
+<h2>9. 完整控制信号流程</h2>
+
+<ol>
+  <li><strong>测量</strong>：采集三相电网电压 \(v_{gABC}\)、三相电网电流 \(i_{gABC}\)、DC-link 电压 \(V_{dc}\)</li>
+  <li><strong>PLL 锁相</strong>：从 \(v_{gABC}\) 提取电网相角 \(\theta\)</li>
+  <li><strong>坐标变换</strong>：
+    <ul>
+      <li>\(v_{gABC} \xrightarrow{abc\to dq} v_{gd},\;v_{gq}\)</li>
+      <li>\(i_{gABC} \xrightarrow{abc\to dq} i_{gd},\;i_{gq}\)</li>
+    </ul>
+  </li>
+  <li><strong>DC 电压滤波</strong>：\(V_{dc} \xrightarrow{\text{LPF}} V_{dcF}\)</li>
+  <li><strong>外环 PI</strong>：\(e_v = V_{dc}^* - V_{dcF} \xrightarrow{PI_v} i_{gd}^*\)</li>
+  <li><strong>设定 q 轴电流参考</strong>：\(i_{gq}^*=0\)（单位功率因数）</li>
+  <li><strong>内环 PI + 解耦</strong>：
+    <ul>
+      <li>\(v_{rd}^* = v_{gd} + \omega L\,i_{gq} - \text{PI}_d(i_{gd}^*-i_{gd})\)</li>
+      <li>\(v_{rq}^* = v_{gq} - \omega L\,i_{gd} - \text{PI}_q(i_{gq}^*-i_{gq})\)</li>
+    </ul>
+  </li>
+  <li><strong>反坐标变换</strong>：\(v_{rd}^*,\;v_{rq}^* \xrightarrow{dq\to abc} v_{ra}^*,\;v_{rb}^*,\;v_{rc}^*\)</li>
+  <li><strong>PWM 调制</strong>：生成 6 路 IGBT 门极信号 → GateR（Gate 驱动模块）</li>
+  <li><strong>功率转换</strong>：三相整流器桥将 AC 功率转换为 DC 功率</li>
+</ol>
+
+<hr>
+
+<!-- ============================== Section 10 ============================== -->
+<h2>10. 关键方程汇总</h2>
+
+<h3>电路方程 (dq 坐标系)</h3>
+<div class="key-eq">
+$$v_{gd} = R\,i_{gd} + L\,\frac{di_{gd}}{dt} - \omega L\,i_{gq} + v_{rd}$$
+
+$$v_{gq} = R\,i_{gq} + L\,\frac{di_{gq}}{dt} + \omega L\,i_{gd} + v_{rq}$$
+</div>
+
+<h3>DC-Link 动态</h3>
+<div class="key-eq">
+$$C_{dc}\,\frac{dV_{dc}}{dt} = \frac{3}{2}\,\frac{V_g\,i_{gd}}{V_{dc}} - \frac{V_{dc}}{R_L}$$
+</div>
+
+<h3>功率方程</h3>
+<div class="key-eq">
+$$P = \frac{3}{2}\,V_g\,i_{gd}, \qquad Q = -\frac{3}{2}\,V_g\,i_{gq}$$
+</div>
+
+<h3>电流环控制律</h3>
+<div class="key-eq">
+$$v_{rd}^* = v_{gd} + \omega L\,i_{gq} - K_{pi}(i_{gd}^*-i_{gd}) - K_{ii}\!\int\!(i_{gd}^*-i_{gd})\,dt$$
+
+$$v_{rq}^* = v_{gq} - \omega L\,i_{gd} - K_{pi}(i_{gq}^*-i_{gq}) - K_{ii}\!\int\!(i_{gq}^*-i_{gq})\,dt$$
+</div>
+
+<h3>电压环控制律</h3>
+<div class="key-eq">
+$$i_{gd}^* = K_{pv}(V_{dc}^*-V_{dc}) + K_{iv}\!\int\!(V_{dc}^*-V_{dc})\,dt$$
+</div>
+
+<hr>
+
+<!-- ============================== Section 11 ============================== -->
+<h2>11. 系统稳定性分析</h2>
+
+<h3>11.1 电流环闭环特征方程</h3>
+
+<p>零极点对消后：</p>
+
+$$1 + \frac{K_{pi}}{Ls} = 0 \;\;\Longrightarrow\;\; s = -\frac{K_{pi}}{L}$$
+
+<p>极点始终在左半平面 → <strong>电流环无条件稳定</strong></p>
+
+<h3>11.2 电压环稳定性</h3>
+
+<p>电压环的相位裕度（Phase Margin, PM）和增益裕度（Gain Margin, GM）需满足：</p>
+
+$$PM > 45°, \qquad GM > 6\;\text{dB}$$
+
+<div class="note">
+带宽分离是保证级联系统稳定性的关键条件。
+</div>
+
+<hr>
+
+<!-- ============================== Section 12 ============================== -->
+<h2>12. 图中各模块对应关系</h2>
+
+<table>
+  <tr><th>图中模块</th><th>功能</th><th>对应数学模型</th></tr>
+  <tr><td>AC grid</td><td>三相交流电源</td><td>\(v_{ga},\;v_{gb},\;v_{gc}\)</td></tr>
+  <tr><td>200 kVA 变压器</td><td>电压变换与隔离</td><td>匝比 460/400，漏感 \(L\)</td></tr>
+  <tr><td>Three-phase rectifier</td><td>功率变换</td><td>开关函数 \(S_a,\;S_b,\;S_c\)</td></tr>
+  <tr><td>DC Link</td><td>能量缓冲</td><td>\(C_{dc}\,dV_{dc}/dt\)</td></tr>
+  <tr><td>Rectifier control</td><td>PI 控制器 + 解耦</td><td>电压环 + 电流环 PI</td></tr>
+  <tr><td>GateR</td><td>门极驱动</td><td>PWM 信号生成</td></tr>
+  <tr><td>VdcRef</td><td>DC 电压参考值</td><td>\(V_{dc}^*\)</td></tr>
+  <tr><td>VdcF</td><td>滤波后的 DC 电压</td><td>\(G_{\text{filter}}(s)\cdot V_{dc}\)</td></tr>
+  <tr><td>VgABC</td><td>三相电网电压测量</td><td>\(v_{ga},\;v_{gb},\;v_{gc}\)</td></tr>
+  <tr><td>IgABC</td><td>三相电网电流测量</td><td>\(i_{ga},\;i_{gb},\;i_{gc}\)</td></tr>
+  <tr><td>Scopes</td><td>示波器/可视化</td><td>监控波形</td></tr>
+  <tr><td>NoOp</td><td>无操作/信号传递</td><td>信号透传</td></tr>
+  <tr><td>f(x) = 0</td><td>初始条件/信号源</td><td>系统初始化</td></tr>
+  <tr><td>SR</td><td>开关控制信号</td><td>PWM 调制信号</td></tr>
+</table>
+
+<hr>
+
+<!-- ============================== Section 13 ============================== -->
+<h2>13. 总结</h2>
+
+<p>本系统通过以下核心思想实现高性能 AC-DC 功率转换：</p>
+
+<ol>
+  <li><strong>dq 坐标系变换</strong>：将时变的三相交流量转化为稳态直流量，使经典 PI 控制器可以实现无差跟踪。</li>
+  <li><strong>电压定向控制（VOC）</strong>：将 d 轴对齐到电网电压矢量方向，实现有功/无功功率的解耦控制。</li>
+  <li><strong>级联 PI 控制</strong>：
+    <ul>
+      <li>外环 PI 控制直流电压，输出 d 轴电流参考</li>
+      <li>内环 PI 控制 dq 轴电流，输出整流器电压参考</li>
+    </ul>
+  </li>
+  <li><strong>前馈解耦</strong>：消除 dq 轴之间的交叉耦合，实现 d/q 轴独立控制。</li>
+  <li><strong>带宽分离</strong>：内环（电流环）远快于外环（电压环），保证级联系统的稳定性和良好的动态响应。</li>
+</ol>
+
+<hr>
+<p style="text-align:center; color:#888; margin-top:40px; font-size:0.9em;">
+  PI-Controlled Three-Phase AC-DC Rectifier — Mathematical &amp; Physical Analysis<br>
+  Generated for MECE-694 Project
+</p>
+
+</body>
+</html>
