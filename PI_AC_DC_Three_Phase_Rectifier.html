@@ -1539,11 +1539,104 @@ $$\begin{bmatrix} v_{r\alpha}^* \\ v_{r\beta}^* \end{bmatrix}
 = \begin{bmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{bmatrix}
 \begin{bmatrix} v_{rd}^* \\ v_{rq}^* \end{bmatrix}$$
 
-<p>调制指数：</p>
+<h4>调制指数 \(m\) 及其物理意义</h4>
+
+<p>调制指数定义为参考电压矢量幅值与逆变器最大可输出基波电压幅值之比：</p>
 
 $$m = \frac{\sqrt{v_{rd}^{*2} + v_{rq}^{*2}}}{V_{dc}/2}$$
 
-<p>线性调制范围：\(0 \le m \le 1.15\)（SVPWM 情况下）</p>
+<p>其中：</p>
+<ul>
+  <li>分子 \(\sqrt{v_{rd}^{*2} + v_{rq}^{*2}}\) 是 dq 平面中参考电压矢量的<strong>幅值</strong>（即整流器需要合成的交流电压峰值）</li>
+  <li>分母 \(V_{dc}/2\) 是三相桥式逆变器每个桥臂相对于直流中点能输出的<strong>最大电压</strong></li>
+</ul>
+
+<p>直观理解：\(m\) 衡量的是"你要求整流器输出的电压"占"整流器最大能力"的比例。</p>
+
+<h4>为什么分母是 \(V_{dc}/2\)？</h4>
+
+<p>三相桥式整流器的每个桥臂连接在 DC-link 的正极（\(+V_{dc}/2\)）和负极（\(-V_{dc}/2\)）之间。当上管导通时，该相输出 \(+V_{dc}/2\)；当下管导通时，输出 \(-V_{dc}/2\)。因此每相电压的摆动范围是 \(\pm V_{dc}/2\)，基波最大峰值为 \(V_{dc}/2\)。</p>
+
+<h4>调制指数的取值范围与不同调制策略</h4>
+
+<table>
+  <tr>
+    <th>调制指数范围</th>
+    <th>调制策略</th>
+    <th>说明</th>
+  </tr>
+  <tr>
+    <td>\(0 \le m \le 1.0\)</td>
+    <td><strong>SPWM</strong>（正弦脉宽调制）线性区</td>
+    <td>三相正弦参考信号与三角载波逐相比较。输出电压与参考成线性关系，波形质量好。</td>
+  </tr>
+  <tr>
+    <td>\(0 \le m \le \dfrac{2}{\sqrt{3}} \approx 1.155\)</td>
+    <td><strong>SVPWM</strong>（空间矢量调制）线性区</td>
+    <td>直接在 αβ 平面优化开关矢量分配。相比 SPWM，<strong>DC 电压利用率提高 15.5%</strong>。</td>
+  </tr>
+  <tr>
+    <td>\(m > 1.155\)</td>
+    <td><strong>过调制区</strong></td>
+    <td>参考电压超出逆变器能力，输出波形开始失真（低次谐波增加），最终趋近六阶梯波。</td>
+  </tr>
+</table>
+
+<h4>SVPWM 为什么比 SPWM 多出 15.5%？</h4>
+
+<p>这源于两种调制策略对 DC 电压的不同利用方式：</p>
+
+<p><strong>SPWM</strong> 中，三相正弦参考信号的峰值不能超过三角载波的峰值。三相线电压的基波峰值最大为：</p>
+
+$$V_{LL,\text{max}}^{\text{SPWM}} = \frac{\sqrt{3}}{2}\,V_{dc}$$
+
+<p><strong>SVPWM</strong> 等效于在三相正弦参考上叠加了一个<strong>零序分量</strong>（三次谐波注入），使每相参考波形的峰值被"压平"，为基波腾出更多空间：</p>
+
+$$V_{LL,\text{max}}^{\text{SVPWM}} = \frac{\sqrt{3}}{2}\,V_{dc} \times \frac{2}{\sqrt{3}} = V_{dc}$$
+
+<p>从 αβ 平面的几何视角看：</p>
+
+<div class="boxed-eq">
+<p><strong>SPWM</strong>：参考矢量必须在六边形的<strong>内切圆</strong>内 → 半径 = \(V_{dc}/2\) → \(m_{\max}=1\)</p>
+<p><strong>SVPWM</strong>：参考矢量可以到达六边形的<strong>内切圆扩展到边</strong> → 半径 = \(V_{dc}/\sqrt{3}\) → \(m_{\max}=2/\sqrt{3} \approx 1.155\)</p>
+</div>
+
+<p>示意图（俯视 αβ 平面）：</p>
+
+<pre><code>              β
+              ↑
+         ╱‾‾‾‾‾‾‾╲
+       ╱    ╱‾‾‾╲   ╲        ← 六边形 = 逆变器所有可能的开关组合
+     ╱    ╱  SPWM ╲   ╲
+    │   ╱   r=Vdc/2 ╲  │      ← SPWM 内切圆（m ≤ 1.0）
+    │  │      ·──────│──│──→ α
+    │   ╲           ╱   │
+     ╲    ╲  SVPWM╱   ╱       ← SVPWM 扩展圆（m ≤ 1.155）
+       ╲    ╲___╱   ╱          r = Vdc/√3
+         ╲_________╱
+</code></pre>
+
+<h4>调制指数对本系统的约束</h4>
+
+<p>\(m\) 不能超过线性区上限，否则输出电压失真。这对系统设计施加了一个<strong>最低 DC 电压约束</strong>：</p>
+
+$$m = \frac{\sqrt{v_{rd}^{*2} + v_{rq}^{*2}}}{V_{dc}/2} \le 1.155$$
+
+<p>反解得：</p>
+
+<div class="key-eq">
+$$V_{dc} \ge \frac{2\sqrt{v_{rd}^{*2} + v_{rq}^{*2}}}{1.155} \approx 1.73\sqrt{v_{rd}^{*2} + v_{rq}^{*2}}$$
+</div>
+
+<p>在稳态下，\(v_{rd}^* \approx V_g\)（电网电压幅值），\(v_{rq}^* \approx -\omega L\,i_{gd}\)，所以：</p>
+
+$$V_{dc,\min} \approx 1.73\sqrt{V_g^2 + (\omega L\,i_{gd})^2}$$
+
+<p>如果 \(V_{dc}\) 低于此值，调制指数饱和，控制器将无法输出足够的交流电压来维持电流跟踪，系统性能恶化。</p>
+
+<div class="note">
+<strong>工程意义</strong>：这就是为什么 DC-link 电压参考值 \(V_{dc}^*\) 不能设得太低——它必须高于电网线电压峰值，才能保证整流器有足够的"电压裕量"来合成所需的交流电压。通常 \(V_{dc}^* \ge \sqrt{2}\,V_{LL} \times 1.1 \sim 1.2\)（留 10%~20% 裕量）。
+</div>
 
 <hr>
 
