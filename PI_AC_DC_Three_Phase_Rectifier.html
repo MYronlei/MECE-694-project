@@ -1770,9 +1770,181 @@ $$PM > 45°, \qquad GM > 6\;\text{dB}$$
 <hr>
 
 <!-- ============================== Section 13 ============================== -->
-<h2>13. 总结</h2>
+<h2>13. 双向运行：从 AC-DC 到 DC-AC</h2>
 
-<p>本系统通过以下核心思想实现高性能 AC-DC 功率转换：</p>
+<p>本文前面分析的是 AC→DC（整流）模式。一个自然的问题是：<strong>如果要反向运行（DC→AC，逆变），需要改什么？</strong></p>
+
+<h3>13.1 核心结论：几乎不需要改任何东西</h3>
+
+<div class="key-eq">
+<strong>同一套硬件（6 个 IGBT 桥）+ 同一套控制结构（PLL + dq 变换 + PI 控制器）可以自动实现双向功率流。</strong> 功率方向完全由 \(i_{gd}\) 的正负号决定。
+</div>
+
+<p>回顾功率方程：</p>
+
+$$P = \frac{3}{2}\,V_g\,i_{gd}$$
+
+<ul>
+  <li>\(i_{gd} > 0\)：功率从 AC 流向 DC（<strong>整流</strong>，AC→DC）</li>
+  <li>\(i_{gd} < 0\)：功率从 DC 流向 AC（<strong>逆变</strong>，DC→AC）</li>
+</ul>
+
+<p>而 \(i_{gd}\) 的正负号由谁决定？—— 由<strong>电压环 PI 控制器的输出 \(i_{gd}^*\)</strong> 决定。</p>
+
+<h3>13.2 电压环如何自动切换功率方向？</h3>
+
+<p>电压环控制律：</p>
+
+$$i_{gd}^* = \text{PI}(V_{dc}^* - V_{dc})$$
+
+<p>分析两种场景：</p>
+
+<table>
+  <tr>
+    <th>场景</th>
+    <th>DC 侧状况</th>
+    <th>\(V_{dc}\) vs \(V_{dc}^*\)</th>
+    <th>PI 输出 \(i_{gd}^*\)</th>
+    <th>功率方向</th>
+  </tr>
+  <tr>
+    <td><strong>整流模式</strong><br>(AC→DC)</td>
+    <td>DC 负载消耗功率<br>（如电阻负载）</td>
+    <td>负载拉低 \(V_{dc}\)<br>\(V_{dc} < V_{dc}^*\)</td>
+    <td><strong>正</strong>（PI 试图升压）</td>
+    <td>AC → DC<br>从电网吸收功率</td>
+  </tr>
+  <tr>
+    <td><strong>逆变模式</strong><br>(DC→AC)</td>
+    <td>DC 侧有电源注入功率<br>（如光伏、电池、制动能量）</td>
+    <td>DC 电源推高 \(V_{dc}\)<br>\(V_{dc} > V_{dc}^*\)</td>
+    <td><strong>负</strong>（PI 试图降压）</td>
+    <td>DC → AC<br>向电网回馈功率</td>
+  </tr>
+</table>
+
+<div class="note">
+<strong>关键洞察</strong>：PI 控制器不知道也不关心功率"应该"往哪个方向流。它只知道一件事：\(V_{dc}\) 太高了就减小 \(i_{gd}\)（甚至让它变负），太低了就增大 \(i_{gd}\)。功率方向的切换是<strong>自动发生</strong>的——PI 输出从正变负的那一刻，系统就从整流切换到了逆变。
+</div>
+
+<h3>13.3 为什么硬件不需要改？</h3>
+
+<p>可能的疑问：<em>"二极管整流桥不能反向导电，为什么 IGBT 桥可以？"</em></p>
+
+<p>关键在于 IGBT 的<strong>反并联二极管</strong>：</p>
+
+<pre><code>      IGBT 桥臂结构
+      ┌───┐
+  +Vdc ─┤ T1 ├──┬── 输出（连接到AC侧）
+      └───┘  │
+        ↕ D1 │    ← T1 的反并联二极管
+             │
+        ↕ D2 │    ← T2 的反并联二极管
+      ┌───┐  │
+  -Vdc ─┤ T2 ├──┘
+      └───┘</code></pre>
+
+<ul>
+  <li><strong>整流模式</strong>（电流从 AC 流入 DC）：电流可以通过 IGBT 导通（T1 或 T2），也可以通过反并联二极管</li>
+  <li><strong>逆变模式</strong>（电流从 DC 流出到 AC）：电流方向反转，可以通过<strong>另一个 IGBT</strong> 或<strong>另一个二极管</strong></li>
+</ul>
+
+<p>IGBT + 反并联二极管的组合构成了一个<strong>四象限开关</strong>——电压和电流都可以双向，所以同一套硬件天然支持双向功率流。</p>
+
+<h3>13.4 整流 vs 逆变：方程对比</h3>
+
+<p>将所有方程并排对比，注意<strong>红色部分</strong>是唯一的区别：</p>
+
+<table>
+  <tr>
+    <th></th>
+    <th>AC→DC（整流）</th>
+    <th>DC→AC（逆变）</th>
+  </tr>
+  <tr>
+    <td><strong>PLL</strong></td>
+    <td>不变：锁定电网相角 \(\theta\)</td>
+    <td>不变：锁定电网相角 \(\theta\)</td>
+  </tr>
+  <tr>
+    <td><strong>Park 变换</strong></td>
+    <td>不变</td>
+    <td>不变</td>
+  </tr>
+  <tr>
+    <td><strong>电压环</strong></td>
+    <td>\(i_{gd}^* = \text{PI}(V_{dc}^*-V_{dc})\)<br>输出 \(i_{gd}^* > 0\)</td>
+    <td>\(i_{gd}^* = \text{PI}(V_{dc}^*-V_{dc})\)<br>输出 \(i_{gd}^* < 0\)（<strong>符号自动反转</strong>）</td>
+  </tr>
+  <tr>
+    <td><strong>q 轴参考</strong></td>
+    <td>\(i_{gq}^* = 0\)</td>
+    <td>\(i_{gq}^* = 0\)（仍然单位功率因数）</td>
+  </tr>
+  <tr>
+    <td><strong>电流环</strong></td>
+    <td>不变：PI + 解耦前馈</td>
+    <td>不变：PI + 解耦前馈</td>
+  </tr>
+  <tr>
+    <td><strong>PWM</strong></td>
+    <td>不变：dq→abc + SVPWM</td>
+    <td>不变：dq→abc + SVPWM</td>
+  </tr>
+  <tr>
+    <td><strong>功率</strong></td>
+    <td>\(P = \frac{3}{2}V_g\cdot(+i_{gd}) > 0\)</td>
+    <td>\(P = \frac{3}{2}V_g\cdot(-i_{gd}) < 0\)</td>
+  </tr>
+</table>
+
+<div class="key-eq">
+<strong>结论：控制器的结构、方程、参数完全一样。唯一的变化是 \(i_{gd}^*\) 的符号自动从正变负，由 PI 控制器根据 \(V_{dc}\) 的偏差自行决定。</strong>
+</div>
+
+<h3>13.5 实际双向应用场景</h3>
+
+<table>
+  <tr><th>应用</th><th>整流模式（AC→DC）</th><th>逆变模式（DC→AC）</th></tr>
+  <tr>
+    <td><strong>电动汽车充电桩 (V2G)</strong></td>
+    <td>电网给电池充电</td>
+    <td>电池向电网放电（Vehicle-to-Grid）</td>
+  </tr>
+  <tr>
+    <td><strong>光伏+储能</strong></td>
+    <td>电网给电池充电（低谷电价）</td>
+    <td>光伏/电池向电网卖电</td>
+  </tr>
+  <tr>
+    <td><strong>电机驱动（再生制动）</strong></td>
+    <td>电网供电驱动电机</td>
+    <td>电机制动能量回馈电网</td>
+  </tr>
+  <tr>
+    <td><strong>不间断电源 (UPS)</strong></td>
+    <td>电网正常时给电池充电</td>
+    <td>电网断电时电池供电给负载</td>
+  </tr>
+</table>
+
+<h3>13.6 双向运行的额外工程考虑</h3>
+
+<p>虽然控制结构不需要改变，但实际工程中双向运行需要注意：</p>
+
+<ul>
+  <li><strong>电流限幅</strong>：PI 输出的 \(i_{gd}^*\) 需要同时设置正限幅和负限幅（\(-I_{\max} \le i_{gd}^* \le +I_{\max}\)），防止过电流</li>
+  <li><strong>防孤岛保护</strong>：逆变模式下向电网回馈功率时，如果电网断电，必须立即停止逆变（防止给检修人员造成触电危险）</li>
+  <li><strong>并网标准</strong>：逆变回馈电网需要满足电能质量标准（如 IEEE 1547），包括 THD 限制、频率/电压骑乘等</li>
+  <li><strong>DC 侧电源能力</strong>：逆变模式需要 DC 侧有真正的能量来源（电池、光伏等），纯电阻负载无法逆变</li>
+</ul>
+
+<hr>
+
+<!-- ============================== Section 14 ============================== -->
+<h2>14. 总结</h2>
+
+<p>本系统通过以下核心思想实现高性能双向 AC-DC / DC-AC 功率转换：</p>
 
 <ol>
   <li><strong>dq 坐标系变换</strong>：将时变的三相交流量转化为稳态直流量，使经典 PI 控制器可以实现无差跟踪。</li>
@@ -1785,11 +1957,12 @@ $$PM > 45°, \qquad GM > 6\;\text{dB}$$
   </li>
   <li><strong>前馈解耦</strong>：消除 dq 轴之间的交叉耦合，实现 d/q 轴独立控制。</li>
   <li><strong>带宽分离</strong>：内环（电流环）远快于外环（电压环），保证级联系统的稳定性和良好的动态响应。</li>
+  <li><strong>天然双向</strong>：同一套控制结构通过 \(i_{gd}\) 符号的自动翻转，无缝支持整流和逆变两种模式。</li>
 </ol>
 
 <hr>
 <p style="text-align:center; color:#888; margin-top:40px; font-size:0.9em;">
-  PI-Controlled Three-Phase AC-DC Rectifier — Mathematical &amp; Physical Analysis<br>
+  PI-Controlled Three-Phase Bidirectional AC-DC Converter — Mathematical &amp; Physical Analysis<br>
   Generated for MECE-694 Project
 </p>
 
